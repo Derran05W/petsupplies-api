@@ -24,9 +24,6 @@
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.33.2",
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "@prisma/engines",

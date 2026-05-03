@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ProductCategory } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
@@ -15,6 +15,7 @@ const products = [
     price: 5499,
     imageUrl: null,
     stock: 120,
+    category: ProductCategory.DOG,
   },
   {
     slug: 'hills-science-diet-cat',
@@ -23,6 +24,7 @@ const products = [
     price: 3999,
     imageUrl: null,
     stock: 85,
+    category: ProductCategory.CAT,
   },
   {
     slug: 'kong-classic-medium',
@@ -31,6 +33,7 @@ const products = [
     price: 1299,
     imageUrl: null,
     stock: 200,
+    category: ProductCategory.DOG,
   },
   {
     slug: 'furminator-deshedding-tool',
@@ -40,6 +43,7 @@ const products = [
     price: 4499,
     imageUrl: null,
     stock: 60,
+    category: ProductCategory.ACCESSORIES,
   },
   {
     slug: 'blue-buffalo-life-protection',
@@ -49,6 +53,7 @@ const products = [
     price: 6299,
     imageUrl: null,
     stock: 95,
+    category: ProductCategory.DOG,
   },
   {
     slug: 'whiskas-wet-cat-food-pack',
@@ -57,6 +62,7 @@ const products = [
     price: 1499,
     imageUrl: null,
     stock: 300,
+    category: ProductCategory.CAT,
   },
   {
     slug: 'petsafe-automatic-feeder',
@@ -65,6 +71,7 @@ const products = [
     price: 8999,
     imageUrl: null,
     stock: 40,
+    category: ProductCategory.ACCESSORIES,
   },
   {
     slug: 'adaptil-dog-calming-collar',
@@ -73,6 +80,7 @@ const products = [
     price: 2999,
     imageUrl: null,
     stock: 75,
+    category: ProductCategory.DOG,
   },
   {
     slug: 'aqueon-fish-tank-20gal',
@@ -81,6 +89,7 @@ const products = [
     price: 14999,
     imageUrl: null,
     stock: 25,
+    category: ProductCategory.FISH,
   },
   {
     slug: 'frontline-plus-flea-tick',
@@ -89,6 +98,7 @@ const products = [
     price: 3799,
     imageUrl: null,
     stock: 150,
+    category: ProductCategory.HEALTH,
   },
 ];
 
@@ -98,7 +108,7 @@ async function main() {
   for (const product of products) {
     await prisma.product.upsert({
       where: { slug: product.slug },
-      update: {},
+      update: { category: product.category },
       create: product,
     });
   }
