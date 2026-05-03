@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { env } from './types/env.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { productsRouter } from './routes/products.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -18,6 +19,7 @@ export function createApp() {
   // seam clear by mounting the webhook route before any future body middleware.
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
+  app.route('/products', productsRouter);
 
   return app;
 }

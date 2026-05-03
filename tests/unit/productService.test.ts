@@ -1,0 +1,230 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ProductCategory } from '@prisma/client';
+
+vi.mock('../../src/lib/prisma.js', () => ({
+  prisma: {
+    product: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      findUnique: vi.fn(),
+    },
+    $queryRawUnsafe: vi.fn(),
+  },
+}));
+
+import { prisma } from '../../src/lib/prisma.js';
+import * as productService from '../../src/services/productService.js';
+
+const mockProduct = (overrides: Record<string, unknown> = {}) => ({
+  id: 'prod-1',
+  slug: 'royal-canin',
+  name: 'Royal Canin',
+  description: 'Dog food',
+  price: 5499,
+  imageUrl: null,
+  stock: 10,
+  active: true,
+  category: ProductCategory.DOG,
+  searchVector: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  images: [],
+  ...overrides,
+});
+
+describe('productService.list', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns paginated products with default page/limit', async () => {
+    const products = [mockProduct()];
+    vi.mocked(prisma.product.findMany).mockResolvedValue(products as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(1);
+
+    const result = await productService.list({});
+
+    expect(result.page).toBe(1);
+    expect(result.limit).toBe(20);
+    expect(result.total).toBe(1);
+    expect(result.products).toHaveLength(1);
+    expect(result.products[0].inStock).toBe(true);
+  });
+
+  it('respects custom page and limit', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    const result = await productService.list({ page: 3, limit: 5 });
+
+    expect(result.page).toBe(3);
+    expect(result.limit).toBe(5);
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      skip: number;
+      take: number;
+    };
+    expect(call.skip).toBe(10);
+    expect(call.take).toBe(5);
+  });
+
+  it('caps limit at 100', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ limit: 999 });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as { take: number };
+    expect(call.take).toBe(100);
+  });
+
+  it('filters by category', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ category: ProductCategory.CAT });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      where: Record<string, unknown>;
+    };
+    expect(call.where).toMatchObject({ category: ProductCategory.CAT });
+  });
+
+  it('filters by price range', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ minPrice: 1000, maxPrice: 5000 });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      where: { price: { gte: number; lte: number } };
+    };
+    expect(call.where.price).toEqual({ gte: 1000, lte: 5000 });
+  });
+
+  it('sorts by price_asc', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'price_asc' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, string>;
+    };
+    expect(call.orderBy).toEqual({ price: 'asc' });
+  });
+
+  it('sorts by price_desc', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'price_desc' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, string>;
+    };
+    expect(call.orderBy).toEqual({ price: 'desc' });
+  });
+
+  it('sorts by newest', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'newest' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, string>;
+    };
+    expect(call.orderBy).toEqual({ createdAt: 'desc' });
+  });
+
+  it('sorts by popularity (falls back to createdAt desc)', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'popularity' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, string>;
+    };
+    expect(call.orderBy).toEqual({ createdAt: 'desc' });
+  });
+
+  it('returns empty products array when no results', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    const result = await productService.list({});
+
+    expect(result.products).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it('uses raw SQL for full-text search and returns matching products', async () => {
+    const product = mockProduct();
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: 'prod-1' }] as never)
+      .mockResolvedValueOnce([{ count: BigInt(1) }] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([product] as never);
+
+    const result = await productService.list({ q: 'royal canin' });
+
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    expect(result.total).toBe(1);
+    expect(result.products).toHaveLength(1);
+  });
+
+  it('returns empty when full-text search finds no matches', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ count: BigInt(0) }] as never);
+
+    const result = await productService.list({ q: 'zzznonexistent' });
+
+    expect(result.products).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+
+  it('sets inStock=false when stock is 0', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([mockProduct({ stock: 0 })] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(1);
+
+    const result = await productService.list({});
+
+    expect(result.products[0].inStock).toBe(false);
+  });
+});
+
+describe('productService.getBySlug', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns the product with inStock when found and active', async () => {
+    const product = mockProduct({ active: true, stock: 5 });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const result = await productService.getBySlug('royal-canin');
+
+    expect(result).not.toBeNull();
+    expect(result!.inStock).toBe(true);
+    expect(result!.slug).toBe('royal-canin');
+  });
+
+  it('returns null when product is not found', async () => {
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+
+    const result = await productService.getBySlug('nonexistent-slug');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null for inactive products', async () => {
+    const product = mockProduct({ active: false });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const result = await productService.getBySlug('inactive-product');
+
+    expect(result).toBeNull();
+  });
+});
