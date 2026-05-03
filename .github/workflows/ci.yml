@@ -1,0 +1,96 @@
+name: Code Quality
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth 0 required for commitlint to compare against PR base
+          fetch-depth: 0
+
+      # pnpm/action-setup must come before actions/setup-node so that
+      # setup-node's `cache: pnpm` can find pnpm on PATH.
+      # Version is read from `packageManager` in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
+      - name: Lint commit messages
+        if: github.event_name == 'pull_request'
+        run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+
+      - name: Type check
+        run: pnpm type-check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level high
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
+      - name: Run tests
+        run: pnpm test
+
+      # Uncomment when integration tests need a real DB (Phase 4+).
+      # Also add this block to the `test` job above, before "Run tests":
+      #   services:
+      #     postgres:
+      #       image: postgres:16
+      #       env:
+      #         POSTGRES_USER: postgres
+      #         POSTGRES_PASSWORD: postgres
+      #         POSTGRES_DB: petsupplies_test
+      #       ports:
+      #         - 5432:5432
+      #       options: >-
+      #         --health-cmd "pg_isready -U postgres"
+      #         --health-interval 10s
+      #         --health-timeout 5s
+      #         --health-retries 5
+      # When enabling the service also:
+      # - Add env.DATABASE_URL: postgresql://postgres:postgres@localhost:5432/petsupplies_test
+      # - Add step before tests: run: pnpm prisma migrate deploy
