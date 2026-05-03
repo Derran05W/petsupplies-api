@@ -1,0 +1,23 @@
+# Planning docs (private, never push)
+.planning/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Prisma
+prisma/migrations/*.sql
+
+# OS
+.DS_Store
+
+# Nix
+.direnv/
+result
