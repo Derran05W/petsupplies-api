@@ -10,6 +10,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   FRONTEND_URL: z.string().url(),
+  FREE_SHIPPING_THRESHOLD_CENTS: z.coerce.number().int().positive().default(5000),
 });
 
 export type Env = z.infer<typeof envSchema>;
