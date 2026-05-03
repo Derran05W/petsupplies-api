@@ -106,14 +106,32 @@ async function main() {
   console.log('Seeding database...');
 
   for (const product of products) {
-    await prisma.product.upsert({
+    const upserted = await prisma.product.upsert({
       where: { slug: product.slug },
       update: { category: product.category },
       create: product,
     });
+
+    const imageUrl = product.imageUrl ?? `https://placehold.co/600x400?text=${encodeURIComponent(product.name)}`;
+    await prisma.productImage.upsert({
+      where: { id: `img-${upserted.id}` },
+      update: { url: imageUrl },
+      create: {
+        id: `img-${upserted.id}`,
+        productId: upserted.id,
+        url: imageUrl,
+        isPrimary: true,
+        sortOrder: 0,
+      },
+    });
   }
 
-  console.log(`Seeded ${products.length} products.`);
+  await prisma.$executeRaw`
+    UPDATE "Product"
+    SET "searchVector" = to_tsvector('english', name || ' ' || description)
+  `;
+
+  console.log(`Seeded ${products.length} products with images and search vectors.`);
 }
 
 main()
