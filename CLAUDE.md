@@ -106,10 +106,20 @@ The Husky pre-commit hook runs `lint-staged`; commit-msg runs `commitlint`.
 - The `.planning/` folder is gitignored — never push to public repo
 - **Detail-plan only the next 1-2 phases at a time** — long-range plans decay
 
+## Model usage
+
+| Task | Model | Effort |
+|---|---|---|
+| Architectural decisions, phase planning, complex debugging | Opus 4.7 | high |
+| Implementing features, writing tests, following an established plan | Sonnet 4.6 | medium |
+| Mechanical tasks (rename, reformat, boilerplate) | Sonnet 4.6 | low |
+
+Default: **Sonnet 4.6, medium effort**. Switch to Opus only when the task requires deep reasoning — if the plan is already written and the scope is clear, stay on Sonnet.
+
 ## Workflow
 
 1. **One phase per session** — start fresh, end with all gates green
-2. **Plan with Opus 4.7, implement with Sonnet 4.6** (use `/model` to switch)
+2. **Plan with Opus 4.7 (high effort), implement with Sonnet 4.6 (medium effort)** — use `/model` to switch
 3. **Phase loop:** plan → implement → verify (test/lint/type-check) → commit → update tracker
 4. **Verification gates between phases:** all tests pass, lint clean, type-check clean, code committed, phase tracker updated, migration runs cleanly on fresh DB if schema changed
 

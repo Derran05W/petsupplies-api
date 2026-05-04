@@ -4,6 +4,7 @@ import { env } from './types/env.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { productsRouter } from './routes/products.js';
+import { cartRouter } from './routes/cart.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -20,6 +21,7 @@ export function createApp() {
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.route('/products', productsRouter);
+  app.route('/cart', cartRouter);
 
   return app;
 }
