@@ -18,22 +18,36 @@ model User {
 }
 
 model Product {
-  id          String          @id @default(cuid())
-  slug        String          @unique
-  name        String
-  description String
-  price       Int
-  imageUrl    String?
-  stock       Int             @default(0)
-  active      Boolean         @default(true)
-  category    ProductCategory
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String                    @id @default(cuid())
+  slug          String                    @unique
+  name          String
+  description   String
+  price         Int
+  imageUrl      String?
+  stock         Int                       @default(0)
+  active        Boolean                   @default(true)
+  category      ProductCategory
+  searchVector  Unsupported("tsvector")?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
 
-  orderItems  OrderItem[]
-  cartItems   CartItem[]
+  orderItems    OrderItem[]
+  cartItems     CartItem[]
+  images        ProductImage[]
 
   @@index([category, active])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+
+  @@index([productId, sortOrder])
 }
 
 model Cart {
