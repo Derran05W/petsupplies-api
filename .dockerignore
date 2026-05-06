@@ -1,0 +1,52 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Node / build artifacts
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Tooling
+.husky
+.github
+.planning
+.envrc
+.direnv
+flake.nix
+flake.lock
+result
+.prettierrc
+.prettierignore
+eslint.config.js
+commitlint.config.js
+lint-staged.config.js
+vitest.config.ts
+tsconfig.check.json
+
+# Tests
+tests
+
+# Env (never let secrets into the image)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode
+.idea
+
+# Docs (keep README in image for provenance; everything else stays out)
+*.md
+!README.md
+
+# Cursor / Claude config
+CLAUDE.md
+.cursor
+
+# Docker self-references
+Dockerfile
+.dockerignore
