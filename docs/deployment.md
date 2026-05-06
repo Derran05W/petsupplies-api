@@ -1,0 +1,192 @@
+# Deployment
+
+Operational runbook for deploying `petsupplies-api` to Railway. This document covers what humans must do once per environment; CI takes care of everything else.
+
+> Secrets in this file are referenced **by name only**. Real values live in Railway service env vars and the Supabase / Stripe dashboards. Do not commit `.env` to the repo.
+
+---
+
+## Architecture overview
+
+| Environment | Branch | Railway service | Supabase project | Stripe account |
+| --- | --- | --- | --- | --- |
+| Staging | `staging` | `petsupplies-api-staging` | staging Supabase project | Stripe **test** mode |
+| Production | `main` | `petsupplies-api-prod` | prod Supabase project | Stripe **live** mode |
+
+Railway watches each branch via its GitHub integration, builds the image from the repo-root `Dockerfile`, and rolls out a new deployment on every successful push. There are no deploy jobs in GitHub Actions — Railway owns the deploy path. CI's job is to fail before a bad commit ever reaches a watched branch.
+
+The container's `CMD` runs `pnpm exec prisma migrate deploy` before starting the server, so database migrations are applied automatically on every boot.
+
+---
+
+## Branch → environment mapping
+
+- `staging` → `petsupplies-api-staging` (Stripe test, staging Supabase, staging Frontend URL)
+- `main` → `petsupplies-api-prod` (Stripe live, prod Supabase, prod Frontend URL)
+
+No PR preview environments in the MVP.
+
+---
+
+## First-time Railway setup (per service)
+
+Repeat once for staging, once for prod.
+
+1. Create a new Railway project (or service inside an existing project).
+2. **Connect GitHub repo**: `Derran05W/petsupplies-api`. Set the watched branch (`staging` for the staging service, `main` for the prod service).
+3. **Builder**: Railway auto-detects the repo-root `Dockerfile`. No manual config needed.
+4. **Healthcheck**: path `/health`, timeout `30s`.
+5. **Restart policy**: `ON_FAILURE` (Railway default).
+6. **Replicas**: 1 (Railway default).
+7. **Service domain**: use the Railway-provided `*.up.railway.app` domain to start. Custom domains are out of scope for Phase 9.
+8. **Configure env vars** per the checklist below.
+9. **Trigger first deploy** (push or manual deploy from the Railway dashboard).
+
+---
+
+## Per-service env vars
+
+All values are environment-specific. Set every variable below in each Railway service's env-vars panel.
+
+### Database
+
+- `DATABASE_URL` — Supabase pooled connection string for that environment's Supabase project.
+
+### Supabase
+
+- `SUPABASE_URL` — `https://<project-ref>.supabase.co`
+- `SUPABASE_JWT_SECRET` — HS256 secret used to verify JWTs in middleware (Supabase project → Settings → API → JWT Secret).
+- `SUPABASE_SERVICE_ROLE_KEY` — admin key. **Never** expose to the frontend.
+
+### Stripe
+
+- `STRIPE_SECRET_KEY` — `sk_test_...` for staging, `sk_live_...` for prod.
+- `STRIPE_WEBHOOK_SECRET` — copied from the Stripe webhook endpoint you create below.
+
+### App
+
+- `NODE_ENV` — `production` for both Railway services.
+- `PORT` — Railway sets this automatically; do not hardcode.
+- `FRONTEND_URL` — used for CORS and Stripe success/cancel URLs. Distinct per env.
+
+### Shipping (optional — has defaults in `src/types/env.ts`)
+
+- `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents).
+- `FLAT_SHIPPING_CENTS` — default `599` (cents).
+
+---
+
+## Mandatory: apply Supabase trigger before first traffic
+
+Authentication is owned by Supabase Auth. A Postgres trigger mirrors new `auth.users` rows into `public."User"`. The API does **not** upsert users; if the trigger is missing, every JWT will pass middleware but the first DB write that joins to `User` will fail.
+
+For each Supabase project (staging, then prod):
+
+1. Open the Supabase SQL editor.
+2. Paste the contents of [`supabase/triggers/sync_auth_user.sql`](../supabase/triggers/sync_auth_user.sql).
+3. Run.
+4. Verify: sign up a test user via Supabase Auth (dashboard → Authentication → Users → Invite or via the frontend) and confirm a row appears in `public."User"`.
+
+---
+
+## Promote an admin (per env)
+
+There is no admin-promotion API. Run this in each env's Supabase SQL editor against the email of the user you want to promote:
+
+```sql
+UPDATE public."User"
+   SET role = 'ADMIN'
+ WHERE email = 'your@email.com';
+```
+
+The user must have signed up via Supabase Auth first (the trigger above creates the row).
+
+---
+
+## Register Stripe webhook endpoint (per env)
+
+Stripe webhooks must be registered in the Stripe dashboard for each environment, pointing at that env's Railway service domain.
+
+1. Stripe dashboard → Developers → Webhooks → **Add endpoint**.
+2. **Endpoint URL**: `https://<railway-service-domain>/webhooks/stripe`.
+3. **Events to send** (minimum):
+   - `checkout.session.completed`
+   - `checkout.session.expired`
+   - `payment_intent.payment_failed`
+4. Save. Copy the **Signing secret** (starts with `whsec_`).
+5. Set `STRIPE_WEBHOOK_SECRET` to that value in the matching Railway service.
+6. Redeploy the Railway service so the new env var takes effect.
+
+Use the **test** Stripe account for the staging endpoint and the **live** Stripe account for the prod endpoint. The two accounts have separate webhook lists and separate signing secrets.
+
+---
+
+## Pre-deploy verification (per env)
+
+Before pointing public traffic at the service:
+
+- [ ] `GET https://<service-domain>/health` returns `{"status":"ok"}`.
+- [ ] `GET https://<service-domain>/products` returns the seeded product list (or an empty paginated payload if seeding hasn't run).
+- [ ] Sign in via the frontend → add to cart → start a Stripe Checkout session. Confirm a `PENDING` order is created and the Stripe URL works.
+- [ ] Complete the test checkout. Confirm the Stripe dashboard shows the webhook delivered with `200`, the `Order` flips to `PAID`, and product stock decremented.
+- [ ] If staging-equivalent behavior is observed, repeat for prod.
+
+---
+
+## Local Docker validation
+
+Useful for verifying Dockerfile changes before pushing.
+
+```bash
+# Build the image
+docker build -t petsupplies-api:local .
+
+# Run with your local .env (must include DATABASE_URL pointing at a reachable Postgres)
+docker run --rm -p 3001:3001 --env-file .env petsupplies-api:local
+
+# In another terminal
+curl http://localhost:3001/health
+```
+
+Image size sanity check:
+
+```bash
+docker images petsupplies-api:local --format '{{.Size}}'
+```
+
+Target: ≤ 500MB. We can revisit a `pnpm deploy --prod` prune stage if we drift higher.
+
+---
+
+## Repo-level setup (one-time, after Phase 9 merges)
+
+1. **Create the `staging` branch** from `main` so the Railway staging service has something to track:
+   ```bash
+   git checkout main
+   git pull
+   git checkout -b staging
+   git push -u origin staging
+   ```
+2. **Branch protection** in GitHub → Settings → Branches:
+   - `main`: require status checks `Quality`, `Test + Build`, `Docker Build`. Require PR review. Require linear history.
+   - `staging`: same status checks. PR review optional.
+
+---
+
+## Operational notes
+
+- **Migrations** run on every container boot via the `CMD`. For backwards-incompatible schema changes, split into expand → migrate → contract phases so a rolling restart keeps both old and new container generations alive.
+- **Manual refunds**: paid admin cancellations log `[admin_cancel_paid_incident]` with the Stripe payment intent. The API does **not** call Stripe Refunds; issue refunds manually in the Stripe dashboard for MVP (Phase 8 decision).
+- **Rolling back**: Railway dashboard → service → Deployments → choose a previous successful build → **Redeploy**. The container will re-apply migrations on boot, so rolling back is safe only if the migration history is also compatible.
+- **Audit failures**: CI runs `pnpm audit --audit-level high`. A new high-severity advisory can red-CI overnight. If this blocks a hotfix, downgrade the threshold temporarily; do not bypass the audit gate by removing the step.
+
+---
+
+## What's intentionally out of scope for Phase 9
+
+- PR preview environments (would require throwaway Supabase projects + Stripe test webhooks per PR).
+- Sentry / observability instrumentation.
+- Rate limiting on `/admin/*`.
+- Image-size optimization via `pnpm deploy --prod` pruning (current image is ~350-450MB; acceptable).
+- Custom domains.
+- Coverage threshold (Phase 10 owns it).
