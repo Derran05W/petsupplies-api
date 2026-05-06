@@ -14,7 +14,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=s/b2da4946-de5e-4465-a3d6-21e5e0327001-/pnpm/store,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
 RUN pnpm exec prisma generate
