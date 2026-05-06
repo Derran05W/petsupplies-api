@@ -65,11 +65,53 @@ describe('webhookService', () => {
       });
       expect(txMock.order.update).toHaveBeenCalledWith({
         where: { id: 'order-1' },
-        data: {
+        data: expect.objectContaining({
           status: 'PAID',
           stripePaymentIntent: 'pi_test_789',
           totalCents: 5200,
-        },
+        }),
+      });
+    });
+
+    it('writes Stripe shipping details to Order snapshot fields', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      const sessionWithShipping = makeSession({
+        collected_information: {
+          shipping_details: {
+            name: 'Jane Doe',
+            address: {
+              line1: '123 Main St',
+              line2: 'Apt 4',
+              city: 'Toronto',
+              state: 'ON',
+              postal_code: 'M5V 3A8',
+              country: 'CA',
+            },
+          },
+        } as never,
+      });
+
+      await webhookService.handleSessionCompleted(sessionWithShipping);
+
+      expect(txMock.order.update).toHaveBeenCalledWith({
+        where: { id: 'order-1' },
+        data: expect.objectContaining({
+          status: 'PAID',
+          shipName: 'Jane Doe',
+          shipLine1: '123 Main St',
+          shipLine2: 'Apt 4',
+          shipCity: 'Toronto',
+          shipRegion: 'ON',
+          shipPostalCode: 'M5V 3A8',
+          shipCountry: 'CA',
+        }),
       });
     });
 
@@ -141,7 +183,7 @@ describe('webhookService', () => {
 
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ totalCents: 5000 }),
+          data: expect.objectContaining({ totalCents: 5000, status: 'PAID' }),
         }),
       );
     });

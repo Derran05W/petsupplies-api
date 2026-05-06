@@ -15,6 +15,7 @@ model User {
 
   orders    Order[]
   cart      Cart?
+  addresses Address[]
 }
 
 model Product {
@@ -81,12 +82,22 @@ model Order {
   stripeSessionId     String?     @unique
   stripePaymentIntent String?
   totalCents          Int
+  trackingNumber      String?
+  carrier             String?
+  shippedAt           DateTime?
+  shipName            String?
+  shipLine1           String?
+  shipLine2           String?
+  shipCity            String?
+  shipRegion          String?
+  shipPostalCode      String?
+  shipCountry         String?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   items               OrderItem[]
 
   @@index([userId, createdAt])
-  @@index([status])
+  @@index([status, createdAt])
 }
 
 model OrderItem {
@@ -99,9 +110,29 @@ model OrderItem {
   priceCents Int
 }
 
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String?
+  line1      String
+  line2      String?
+  city       String
+  region     String
+  postalCode String
+  country    String
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, isDefault])
+  @@index([userId, createdAt])
+}
+
 enum OrderStatus {
   PENDING
   PAID
+  SHIPPED
   FULFILLED
   CANCELLED
 }

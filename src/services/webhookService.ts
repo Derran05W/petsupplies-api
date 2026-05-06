@@ -55,12 +55,26 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
         }
       }
 
+      const shipping = session.collected_information?.shipping_details;
+      const shipData = shipping
+        ? {
+            shipName: shipping.name ?? null,
+            shipLine1: shipping.address?.line1 ?? null,
+            shipLine2: shipping.address?.line2 ?? null,
+            shipCity: shipping.address?.city ?? null,
+            shipRegion: shipping.address?.state ?? null,
+            shipPostalCode: shipping.address?.postal_code ?? null,
+            shipCountry: shipping.address?.country ?? null,
+          }
+        : {};
+
       await tx.order.update({
         where: { id: order.id },
         data: {
           status: 'PAID',
           stripePaymentIntent: paymentIntentId,
           totalCents,
+          ...shipData,
         },
       });
     });
