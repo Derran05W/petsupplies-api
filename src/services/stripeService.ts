@@ -124,6 +124,8 @@ export async function createCheckoutSessionFromCart(
     automatic_tax: { enabled: true },
     client_reference_id: userId,
     metadata: { orderId: order.id },
+    // Session metadata does not reliably appear on PaymentIntent; webhook uses this for failures.
+    payment_intent_data: { metadata: { orderId: order.id } },
     success_url: `${env.FRONTEND_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${env.FRONTEND_URL}/checkout/cancel`,
   });

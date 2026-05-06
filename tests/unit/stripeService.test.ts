@@ -243,6 +243,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
           automatic_tax: { enabled: true },
           client_reference_id: 'user-1',
           metadata: { orderId: 'order-1' },
+          payment_intent_data: { metadata: { orderId: 'order-1' } },
         }),
       );
     });

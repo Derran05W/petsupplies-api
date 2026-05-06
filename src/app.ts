@@ -6,6 +6,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { productsRouter } from './routes/products.js';
 import { cartRouter } from './routes/cart.js';
 import { checkoutRouter } from './routes/checkout.js';
+import { webhooksRouter } from './routes/webhooks.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -15,10 +16,10 @@ export function createApp() {
   app.use(requestLogger);
   app.onError(errorHandler);
 
-  // IMPORTANT: Register POST /webhooks/stripe here (before any JSON body parsing)
-  // when implementing Phase 7. Stripe requires the raw request body for
-  // signature verification. Hono doesn't auto-parse bodies, but keep this
-  // seam clear by mounting the webhook route before any future body middleware.
+  // RAW BODY INVARIANT: /webhooks/stripe is mounted before any future JSON body-parser
+  // middleware. Stripe signature verification requires the unparsed request body.
+  // Do NOT move this mount point below any body-parsing middleware.
+  app.route('/webhooks', webhooksRouter);
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.route('/products', productsRouter);
