@@ -7,6 +7,10 @@ import { productsRouter } from './routes/products.js';
 import { cartRouter } from './routes/cart.js';
 import { checkoutRouter } from './routes/checkout.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { ordersRouter } from './routes/orders.js';
+import { adminRouter } from './routes/admin.js';
+import { usersRouter } from './routes/users.js';
+import { addressesRouter } from './routes/addresses.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -25,6 +29,10 @@ export function createApp() {
   app.route('/products', productsRouter);
   app.route('/cart', cartRouter);
   app.route('/checkout', checkoutRouter);
+  app.route('/orders', ordersRouter);
+  app.route('/admin', adminRouter);
+  app.route('/users', usersRouter);
+  app.route('/users/me/addresses', addressesRouter);
 
   return app;
 }
