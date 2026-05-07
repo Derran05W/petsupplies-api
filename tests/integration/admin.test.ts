@@ -14,12 +14,17 @@ vi.mock('../../src/services/discountService.js', () => ({
   listDiscounts: vi.fn(),
 }));
 
+vi.mock('../../src/services/subscriptionService.js', () => ({
+  markProductSubscriptionEligible: vi.fn(),
+}));
+
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: { user: { findUnique: vi.fn() } },
 }));
 
 import * as orderService from '../../src/services/orderService.js';
 import * as discountService from '../../src/services/discountService.js';
+import * as subscriptionService from '../../src/services/subscriptionService.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { createApp } from '../../src/app.js';
 
@@ -301,6 +306,42 @@ describe('GET /admin/discounts', () => {
     expect(res.status).toBe(200);
     expect(discountService.listDiscounts).toHaveBeenCalledWith(
       expect.objectContaining({ page: 1, limit: 20, active: true }),
+    );
+  });
+});
+
+const SAMPLE_PRODUCT_ID = `c${'p'.repeat(24)}`;
+
+describe('PATCH /admin/products/:id/subscription', () => {
+  it('requires auth', async () => {
+    const app = createApp();
+    const res = await app.request(`/admin/products/${SAMPLE_PRODUCT_ID}/subscription`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptionEligible: true }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('forwards product id on success', async () => {
+    vi.mocked(subscriptionService.markProductSubscriptionEligible).mockResolvedValue({
+      productId: SAMPLE_PRODUCT_ID,
+      subscriptionEligible: true,
+      prices: [],
+    });
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request(`/admin/products/${SAMPLE_PRODUCT_ID}/subscription`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ subscriptionEligible: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(subscriptionService.markProductSubscriptionEligible).toHaveBeenCalledWith(
+      SAMPLE_PRODUCT_ID,
     );
   });
 });

@@ -216,3 +216,66 @@ If you did not request this, you can ignore this email.`;
 
   return { subject, html, text };
 }
+
+export interface SubscriptionUpcomingDeliveryEmailPayload {
+  subscriptionId: string;
+  to: string;
+  customerName?: string | null;
+  nextDeliveryAt: Date;
+  productName: string;
+  productUrl: string;
+  petName?: string | null;
+  deliveryDateLabel: string;
+}
+
+export interface SubscriptionPaymentIssueEmailPayload {
+  subscriptionId: string;
+  to: string;
+  invoiceId: string;
+  customerName?: string | null;
+}
+
+export function renderSubscriptionUpcomingDelivery(
+  payload: SubscriptionUpcomingDeliveryEmailPayload,
+): RenderedEmail {
+  const subject = `Your Subscribe & Save delivery is coming up (${payload.deliveryDateLabel})`;
+  const greetingLine = greeting(payload.customerName);
+  const petLine = payload.petName
+    ? `<p>For <strong>${escapeHtml(payload.petName)}</strong></p>`
+    : '';
+  const petLineText = payload.petName ? `\nFor ${payload.petName}` : '';
+
+  const html = `<p>${escapeHtml(greetingLine)}</p>
+<p>Your next Subscribe & Save shipment for <strong>${escapeHtml(payload.productName)}</strong> is scheduled around <strong>${escapeHtml(payload.deliveryDateLabel)}</strong>.</p>
+${petLine}
+<p><a href="${escapeHtml(payload.productUrl)}">View product</a></p>
+<p>You can manage delivery anytime from your account.</p>`;
+
+  const text = `${greetingLine}
+
+Your next Subscribe & Save shipment for ${payload.productName} is scheduled around ${payload.deliveryDateLabel}.${petLineText}
+
+View product: ${payload.productUrl}
+
+You can manage delivery anytime from your account.`;
+
+  return { subject, html, text };
+}
+
+export function renderSubscriptionPaymentIssue(
+  payload: SubscriptionPaymentIssueEmailPayload,
+): RenderedEmail {
+  const subject = 'We hit a snag with your latest delivery';
+  const greetingLine = greeting(payload.customerName);
+  const html = `<p>${escapeHtml(greetingLine)}</p>
+<p>We hit a snag with your latest delivery — our team has been notified.</p>
+<p>You do not need to do anything right now; we will follow up if we need more information.</p>`;
+
+  const text = `${greetingLine}
+
+We hit a snag with your latest delivery — our team has been notified.
+
+You do not need to do anything right now; we will follow up if we need more information.`;
+
+  return { subject, html, text };
+}

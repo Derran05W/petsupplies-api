@@ -6,6 +6,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
     cart: { findUnique: vi.fn() },
     order: { create: vi.fn(), update: vi.fn() },
     cartItem: { deleteMany: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -16,6 +17,25 @@ vi.mock('../../src/lib/stripe.js', () => ({
       sessions: {
         create: vi.fn(),
       },
+    },
+    coupons: {
+      retrieve: vi.fn(),
+      create: vi.fn(),
+    },
+    customers: {
+      create: vi.fn(),
+    },
+    subscriptions: {
+      update: vi.fn(),
+      cancel: vi.fn(),
+      retrieve: vi.fn(),
+    },
+    prices: {
+      create: vi.fn(),
+      retrieve: vi.fn(),
+    },
+    products: {
+      create: vi.fn(),
     },
   },
 }));
@@ -87,6 +107,12 @@ const mockSession = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(prisma.user.findUnique).mockResolvedValue({
+    id: 'user-1',
+    email: 'user@example.com',
+    stripeCustomerId: 'cus_existing',
+  } as never);
+  vi.mocked(prisma.user.update).mockResolvedValue({} as never);
 });
 
 describe('stripeService.createCheckoutSessionFromCart', () => {
@@ -267,6 +293,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'payment',
+          customer: 'cus_existing',
           line_items: [
             expect.objectContaining({
               quantity: 2,
@@ -344,6 +371,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
 
       expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          customer: 'cus_existing',
           shipping_options: [
             expect.objectContaining({
               shipping_rate_data: expect.objectContaining({
@@ -367,6 +395,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
 
       expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          customer: 'cus_existing',
           shipping_options: [
             expect.objectContaining({
               shipping_rate_data: expect.objectContaining({
@@ -471,6 +500,7 @@ describe('stripeService.createCheckoutSessionFromCart discount flows', () => {
     expect(discountService.validateById).toHaveBeenCalledWith('d1', 'user-1', 4000);
     expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
       expect.objectContaining({
+        customer: 'cus_existing',
         discounts: [{ coupon: 'cp_pct' }],
         metadata: { orderId: 'order-1', discountId: 'd1' },
       }),
@@ -524,5 +554,116 @@ describe('stripeService.createCheckoutSessionFromCart discount flows', () => {
     await expect(stripeService.createCheckoutSessionFromCart('user-1')).rejects.toMatchObject({
       status: 409,
     });
+  });
+});
+
+describe('stripeService subscribe & save helpers', () => {
+  beforeEach(() => {
+    stripeService.resetSubscribeAndSaveCouponCacheForTests();
+    vi.mocked(stripe.coupons.retrieve).mockReset();
+    vi.mocked(stripe.coupons.create).mockReset();
+  });
+
+  it('getOrCreateSubscribeAndSaveCoupon caches coupon retrieve', async () => {
+    vi.mocked(stripe.coupons.retrieve).mockResolvedValue({
+      id: 'subscribe-save-5pct',
+    } as never);
+    const c1 = await stripeService.getOrCreateSubscribeAndSaveCoupon();
+    const c2 = await stripeService.getOrCreateSubscribeAndSaveCoupon();
+    expect(c1.id).toBe('subscribe-save-5pct');
+    expect(stripe.coupons.retrieve).toHaveBeenCalledTimes(1);
+    expect(c2).toBe(c1);
+  });
+
+  it('stripePauseSubscription sends pause_collection void', async () => {
+    vi.mocked(stripe.subscriptions.update).mockResolvedValue({} as never);
+    await stripeService.stripePauseSubscription('sub_x');
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith('sub_x', {
+      pause_collection: { behavior: 'void' },
+    });
+  });
+
+  it('stripeResumeSubscription clears pause_collection', async () => {
+    vi.mocked(stripe.subscriptions.update).mockResolvedValue({} as never);
+    await stripeService.stripeResumeSubscription('sub_x');
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith('sub_x', {
+      pause_collection: '',
+    });
+  });
+
+  it('stripeCancelSubscriptionAtPeriodEnd sets cancel_at_period_end', async () => {
+    vi.mocked(stripe.subscriptions.update).mockResolvedValue({} as never);
+    await stripeService.stripeCancelSubscriptionAtPeriodEnd('sub_x');
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith('sub_x', {
+      cancel_at_period_end: true,
+    });
+  });
+
+  it('stripeCancelSubscriptionImmediately cancels', async () => {
+    vi.mocked(stripe.subscriptions.cancel).mockResolvedValue({} as never);
+    await stripeService.stripeCancelSubscriptionImmediately('sub_x');
+    expect(stripe.subscriptions.cancel).toHaveBeenCalledWith('sub_x');
+  });
+
+  it('createSubscriptionCheckoutSession builds subscription session', async () => {
+    vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
+      id: 'cs_sub',
+      url: 'https://co.test',
+    } as never);
+    vi.mocked(stripe.coupons.retrieve).mockResolvedValue({
+      id: 'subscribe-save-5pct',
+    } as never);
+
+    const r = await stripeService.createSubscriptionCheckoutSession({
+      userId: 'user-1',
+      stripePriceId: 'price_123',
+      quantity: 2,
+      subtotalCents: 8000,
+      metadata: {
+        userId: 'user-1',
+        productId: 'p1',
+        quantity: '2',
+        interval: 'WEEK_4',
+      },
+    });
+
+    expect(r.checkoutSessionId).toBe('cs_sub');
+    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'subscription',
+        discounts: [{ coupon: 'subscribe-save-5pct' }],
+      }),
+    );
+  });
+
+  it('ensureStripeSubscriptionProductId uses existing price product', async () => {
+    vi.mocked(stripe.prices.retrieve).mockResolvedValue({
+      product: 'prod_existing',
+    } as never);
+    const id = await stripeService.ensureStripeSubscriptionProductId({
+      productId: 'p1',
+      productName: 'N',
+      existingStripePriceId: 'price_old',
+    });
+    expect(id).toBe('prod_existing');
+  });
+
+  it('stripeUpdateSubscriptionItemsProrationNone updates item', async () => {
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValue({
+      items: { data: [{ id: 'si_abc' }] },
+    } as never);
+    vi.mocked(stripe.subscriptions.update).mockResolvedValue({} as never);
+    await stripeService.stripeUpdateSubscriptionItemsProrationNone({
+      stripeSubscriptionId: 'sub_x',
+      quantity: 4,
+      stripePriceId: 'price_new',
+    });
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith(
+      'sub_x',
+      expect.objectContaining({
+        proration_behavior: 'none',
+        items: [{ id: 'si_abc', quantity: 4, price: 'price_new' }],
+      }),
+    );
   });
 });

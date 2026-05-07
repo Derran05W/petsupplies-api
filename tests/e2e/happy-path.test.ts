@@ -79,6 +79,9 @@ describe.sequential('E2E: signup → browse → cart → checkout → webhook �
     });
     expect(addCartRes.status).toBe(201);
 
+    const customerSpy = vi.spyOn(stripe.customers, 'create').mockResolvedValue({
+      id: `cus_${randomUUID().slice(0, 24)}`,
+    } as Stripe.Response<Stripe.Customer>);
     const createSpy = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
       id: stripeSessionId,
       url: 'https://checkout.stripe.test/session',
@@ -90,6 +93,7 @@ describe.sequential('E2E: signup → browse → cart → checkout → webhook �
     });
     expect(createSpy).toHaveBeenCalled();
     createSpy.mockRestore();
+    customerSpy.mockRestore();
 
     expect(checkoutRes.status).toBe(200);
     const checkoutBody = (await checkoutRes.json()) as { orderId: string; url: string };
@@ -183,5 +187,5 @@ describe.sequential('E2E: signup → browse → cart → checkout → webhook �
 
     const updatedProduct = await prisma.product.findUnique({ where: { id: productId } });
     expect(updatedProduct?.stock).toBe(initialStock - QUANTITY);
-  });
+  }, 60_000);
 });

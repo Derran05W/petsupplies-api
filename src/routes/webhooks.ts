@@ -31,6 +31,21 @@ webhooksRouter.post('/stripe', async (c) => {
     case 'payment_intent.payment_failed':
       await webhookService.handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
       break;
+    case 'customer.subscription.created':
+      await webhookService.handleSubscriptionCreated(event.data.object as Stripe.Subscription);
+      break;
+    case 'customer.subscription.updated':
+      await webhookService.handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+      break;
+    case 'customer.subscription.deleted':
+      await webhookService.handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+      break;
+    case 'invoice.paid':
+      await webhookService.handleInvoicePaid(event.data.object as Stripe.Invoice);
+      break;
+    case 'invoice.payment_failed':
+      await webhookService.handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+      break;
     default:
       console.log(`[webhook] unhandled event type: ${event.type}`);
   }

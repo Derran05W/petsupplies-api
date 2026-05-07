@@ -14,6 +14,8 @@ import {
   sendOrderConfirmation,
   sendPasswordReset,
   sendShippingNotification,
+  sendSubscriptionPaymentIssue,
+  sendUpcomingDeliveryReminder,
 } from '../../src/services/emailService.js';
 
 describe('emailService', () => {
@@ -105,6 +107,36 @@ describe('emailService', () => {
     expect(vi.mocked(sendEmail).mock.calls[0]![0].idempotencyKey).toBe(
       'abandoned-cart-reminder/cart-1',
     );
+  });
+
+  it('sendUpcomingDeliveryReminder uses date-scoped idempotency key', async () => {
+    const next = new Date('2026-06-01T12:00:00.000Z');
+    await sendUpcomingDeliveryReminder({
+      subscriptionId: 'sub-1',
+      to: 'a@b.com',
+      customerName: 'Pat',
+      productName: 'Kibble',
+      productUrl: 'http://localhost:3000/products/kibble',
+      nextDeliveryAt: next,
+      deliveryDateLabel: 'June 1, 2026',
+    });
+    const arg = vi.mocked(sendEmail).mock.calls[0]![0];
+    expect(arg.idempotencyKey).toBe('upcoming-delivery/sub-1/2026-06-01');
+    expect(arg.subject).toContain('Subscribe & Save delivery');
+    expect(arg.tags).toEqual([{ name: 'template', value: 'subscription-upcoming-delivery' }]);
+  });
+
+  it('sendSubscriptionPaymentIssue uses subscription and invoice idempotency key', async () => {
+    await sendSubscriptionPaymentIssue({
+      subscriptionId: 'sub-2',
+      to: 'a@b.com',
+      customerName: 'Pat',
+      invoiceId: 'in_123',
+    });
+    const arg = vi.mocked(sendEmail).mock.calls[0]![0];
+    expect(arg.idempotencyKey).toBe('subscription-payment-issue/sub-2/in_123');
+    expect(arg.subject).toContain('snag');
+    expect(arg.tags).toEqual([{ name: 'template', value: 'subscription-payment-issue' }]);
   });
 
   it('sendPasswordReset is a stub and does not call transport', async () => {

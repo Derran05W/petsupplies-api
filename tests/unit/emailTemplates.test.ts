@@ -6,6 +6,8 @@ import {
   renderOrderConfirmation,
   renderPasswordReset,
   renderShippingNotification,
+  renderSubscriptionPaymentIssue,
+  renderSubscriptionUpcomingDelivery,
 } from '../../src/services/emailTemplates.js';
 
 describe('emailTemplates', () => {
@@ -88,5 +90,33 @@ describe('emailTemplates', () => {
     expect(r.subject).toBe('Reset your Pet Supplies password');
     expect(r.html).toContain('30');
     expect(r.text).toContain('supersecret');
+  });
+
+  it('renderSubscriptionUpcomingDelivery escapes product and pet fields', () => {
+    const r = renderSubscriptionUpcomingDelivery({
+      subscriptionId: 's1',
+      to: 'a@b.com',
+      customerName: 'Sam',
+      nextDeliveryAt: new Date('2026-06-01T00:00:00.000Z'),
+      productName: 'Fish <flakes>',
+      productUrl: 'https://app.example.com/products/fish',
+      petName: 'Nemo & friends',
+      deliveryDateLabel: '2026-06-01',
+    });
+    expect(r.subject).toContain('2026-06-01');
+    expect(r.html).toContain('&lt;flakes&gt;');
+    expect(r.html).not.toContain('<flakes>');
+    expect(r.html).toContain('Nemo &amp; friends');
+  });
+
+  it('renderSubscriptionPaymentIssue uses neutral copy', () => {
+    const r = renderSubscriptionPaymentIssue({
+      subscriptionId: 's1',
+      to: 'a@b.com',
+      invoiceId: 'in_1',
+      customerName: 'Sam',
+    });
+    expect(r.subject).toContain('snag');
+    expect(r.html.toLowerCase()).not.toContain('refund');
   });
 });

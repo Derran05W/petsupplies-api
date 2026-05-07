@@ -18,6 +18,7 @@ describe.sequential('E2E: discount redemption', () => {
   const stripeSessionId = `cs_disc_${randomUUID().slice(0, 12)}`;
   const paymentIntentId = `pi_disc_${randomUUID().slice(0, 12)}`;
   const discountCode = `D${randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+  const stripeCouponIdForDiscount = `cp_e2e_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
 
   let productId: string | undefined;
   let discountId: string | undefined;
@@ -50,7 +51,7 @@ describe.sequential('E2E: discount redemption', () => {
         type: 'PERCENTAGE',
         value: 10,
         active: true,
-        stripeCouponId: 'cp_e2e_discount_test',
+        stripeCouponId: stripeCouponIdForDiscount,
       },
     });
     discountId = d.id;
@@ -102,6 +103,9 @@ describe.sequential('E2E: discount redemption', () => {
     });
     expect(discRes.status).toBe(200);
 
+    vi.spyOn(stripe.customers, 'create').mockResolvedValue({
+      id: `cus_${randomUUID().slice(0, 24)}`,
+    } as Stripe.Response<Stripe.Customer>);
     const createSpy = vi.spyOn(stripe.checkout.sessions, 'create').mockResolvedValue({
       id: stripeSessionId,
       url: 'https://checkout.stripe.test/session',
