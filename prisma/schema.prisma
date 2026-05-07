@@ -18,6 +18,7 @@ model User {
   addresses       Address[]
   discountUsages  DiscountUsage[]
   reviews         Review[]
+  wishlistItems   WishlistItem[]
 }
 
 model Product {
@@ -40,8 +41,21 @@ model Product {
   cartItems     CartItem[]
   images        ProductImage[]
   reviews       Review[]
+  wishlistItems WishlistItem[]
 
   @@index([category, active])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId, addedAt])
 }
 
 model Review {
