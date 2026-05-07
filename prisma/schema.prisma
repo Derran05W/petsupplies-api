@@ -19,6 +19,7 @@ model User {
   discountUsages  DiscountUsage[]
   reviews         Review[]
   wishlistItems   WishlistItem[]
+  pets            Pet[]
 }
 
 model Product {
@@ -56,6 +57,23 @@ model WishlistItem {
 
   @@unique([userId, productId])
   @@index([userId, addedAt])
+}
+
+model Pet {
+  id              String     @id @default(cuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  species         PetSpecies
+  breed           String?
+  birthDate       DateTime?
+  weightGrams     Int?
+  dietaryNotes    String?
+  profilePhotoUrl String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([userId, createdAt])
 }
 
 model Review {
@@ -249,4 +267,16 @@ enum DiscountType {
   PERCENTAGE
   FIXED
   FREE_SHIPPING
+}
+
+enum PetSpecies {
+  DOG
+  CAT
+  FISH
+  BIRD
+  RABBIT
+  HAMSTER
+  GUINEA_PIG
+  REPTILE
+  OTHER
 }
