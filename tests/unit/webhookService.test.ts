@@ -13,6 +13,11 @@ vi.mock('../../src/services/emailService.js', () => ({
   sendOrderConfirmation: vi.fn(),
 }));
 
+vi.mock('../../src/services/discountService.js', () => ({
+  applyToOrder: vi.fn(),
+}));
+
+import * as discountService from '../../src/services/discountService.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { sendOrderConfirmation } from '../../src/services/emailService.js';
 import * as webhookService from '../../src/services/webhookService.js';
@@ -320,6 +325,115 @@ describe('webhookService', () => {
           orderUrl: 'http://localhost:3000/orders/order-1',
         }),
       );
+    });
+
+    it('calls applyToOrder when order has discountId before PAID update', async () => {
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      vi.mocked(discountService.applyToOrder).mockResolvedValue({ applied: true });
+      vi.mocked(prisma.order.findUnique)
+        .mockResolvedValueOnce({ ...pendingOrderWithItems, discountId: 'disc-1' } as never)
+        .mockResolvedValueOnce({
+          ...pendingOrderWithItems,
+          status: 'PAID',
+          discountId: 'disc-1',
+          totalCents: 5200,
+          stripePaymentIntent: 'pi_test_789',
+        } as never);
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(discountService.applyToOrder).toHaveBeenCalledWith('disc-1', 'order-1', txMock);
+      expect(sendOrderConfirmation).toHaveBeenCalledOnce();
+    });
+
+    it('does not call applyToOrder for already-PAID deliveries even with discountId', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue({
+        ...pendingOrderWithItems,
+        status: 'PAID',
+        discountId: 'disc-1',
+      } as never);
+      await webhookService.handleSessionCompleted(makeSession({}));
+      expect(discountService.applyToOrder).not.toHaveBeenCalled();
+    });
+
+    it('does not call applyToOrder when stock is oversold', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue({
+        ...pendingOrderWithItems,
+        discountId: 'disc-1',
+      } as never);
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+        order: { update: vi.fn() },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+      vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+      await webhookService.handleSessionCompleted(makeSession({}));
+      expect(discountService.applyToOrder).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+
+    it('cancels order and logs incident when discount redemption hits max redemptions', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue({
+        ...pendingOrderWithItems,
+        discountId: 'disc-1',
+      } as never);
+      vi.mocked(discountService.applyToOrder).mockResolvedValue({
+        applied: false,
+        reason: 'MAX_REDEMPTIONS_REACHED',
+      });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+      vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+      await webhookService.handleSessionCompleted(makeSession({}));
+      expect(errSpy).toHaveBeenCalledWith(
+        '[discount_redemption_incident]',
+        expect.stringContaining('disc-1'),
+      );
+      expect(prisma.order.update).toHaveBeenCalledWith({
+        where: { id: 'order-1' },
+        data: { status: 'CANCELLED' },
+      });
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+
+    it('cancels order when discount redemption fails with ALREADY_USED', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue({
+        ...pendingOrderWithItems,
+        discountId: 'disc-1',
+      } as never);
+      vi.mocked(discountService.applyToOrder).mockResolvedValue({
+        applied: false,
+        reason: 'ALREADY_USED',
+      });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+      vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+      await webhookService.handleSessionCompleted(makeSession({}));
+      expect(errSpy).toHaveBeenCalledWith(
+        '[discount_redemption_incident]',
+        expect.stringContaining('order-1'),
+      );
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
+      errSpy.mockRestore();
     });
   });
 

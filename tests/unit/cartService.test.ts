@@ -3,7 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
-    cart: { upsert: vi.fn(), findUnique: vi.fn() },
+    cart: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     cartItem: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -19,7 +19,14 @@ vi.mock('../../src/lib/prisma.js', () => ({
 import { prisma } from '../../src/lib/prisma.js';
 import * as cartService from '../../src/services/cartService.js';
 
-const mockCart = { id: 'cart-1', userId: 'user-1', createdAt: new Date(), updatedAt: new Date() };
+const mockCart = {
+  id: 'cart-1',
+  userId: 'user-1',
+  discountId: null,
+  discount: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
 const mockProduct = {
   id: 'prod-1',
   name: 'Dog Food',
@@ -328,9 +335,14 @@ describe('cartService.clear', () => {
   it('calls deleteMany when cart exists', async () => {
     vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
     vi.mocked(prisma.cartItem.deleteMany).mockResolvedValue({ count: 2 } as never);
+    vi.mocked(prisma.cart.update).mockResolvedValue(mockCart as never);
 
     await cartService.clear('user-1');
 
     expect(prisma.cartItem.deleteMany).toHaveBeenCalledWith({ where: { cartId: 'cart-1' } });
+    expect(prisma.cart.update).toHaveBeenCalledWith({
+      where: { id: 'cart-1' },
+      data: { discountId: null },
+    });
   });
 });

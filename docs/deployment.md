@@ -131,6 +131,21 @@ Use the **test** Stripe account for the staging endpoint and the **live** Stripe
 
 ---
 
+## Phase 12 — Discount coupons in Stripe (staging smoke)
+
+After each deploy that includes Phase 12 migrations:
+
+1. Confirm the Railway service `STRIPE_SECRET_KEY` can create **Coupons** (Dashboard → Products → Coupons, or API).
+2. As an admin JWT, `POST /admin/discounts` with a `PERCENTAGE` or `FIXED` payload; verify a matching **Coupon** appears in the Stripe test dashboard (`max_redemptions` / `redeem_by` should mirror optional fields).
+3. Create a `FREE_SHIPPING` discount via the same endpoint; confirm **no** Stripe coupon exists for it (shipping is handled via Checkout `shipping_options` only).
+4. Run a staging checkout with a percentage/fixed code; confirm Checkout shows the coupon and totals align with the API snapshot (`subtotalCents`, `discountCents`, `shippingCents` on `Order`).
+5. Run a staging checkout with free shipping below `FREE_SHIPPING_THRESHOLD_CENTS`; confirm the shipping line is **Free shipping** (`amount: 0`).
+6. Replay a signed `checkout.session.completed` in Stripe CLI or the dashboard "Resend"; confirm no duplicate `DiscountUsage` row and `Discount.usedCount` does not double-increment.
+
+See [`docs/discounts.md`](./discounts.md) for validation rules, orphan-coupon cleanup, and redemption semantics.
+
+---
+
 ## Pre-deploy verification (per env)
 
 Before pointing public traffic at the service:

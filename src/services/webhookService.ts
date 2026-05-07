@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../types/env.js';
+import * as discountService from './discountService.js';
 import { sendOrderConfirmation } from './emailService.js';
 
 function paymentIntentString(pi: Stripe.Checkout.Session['payment_intent']): string | null {
@@ -66,6 +67,16 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
         }
       }
 
+      if (order.discountId) {
+        const dr = await discountService.applyToOrder(order.discountId, order.id, tx);
+        if (
+          !dr.applied &&
+          (dr.reason === 'MAX_REDEMPTIONS_REACHED' || dr.reason === 'ALREADY_USED')
+        ) {
+          throw new Error(`discount_redemption_failed:${dr.reason}`);
+        }
+      }
+
       const shipping = session.collected_information?.shipping_details;
       const shipData = shipping
         ? {
@@ -98,6 +109,22 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
           orderId: order.id,
           sessionId: session.id,
           stripePaymentIntent: paymentIntentId,
+        }),
+      );
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { status: 'CANCELLED' },
+      });
+      return;
+    }
+    if (err instanceof Error && err.message.startsWith('discount_redemption_failed:')) {
+      const reason = err.message.slice('discount_redemption_failed:'.length);
+      console.error(
+        '[discount_redemption_incident]',
+        JSON.stringify({
+          orderId: order.id,
+          discountId: order.discountId,
+          reason,
         }),
       );
       await prisma.order.update({
