@@ -9,11 +9,17 @@ vi.mock('../../src/services/orderService.js', () => ({
   updateAdminOrderStatus: vi.fn(),
 }));
 
+vi.mock('../../src/services/discountService.js', () => ({
+  createDiscount: vi.fn(),
+  listDiscounts: vi.fn(),
+}));
+
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: { user: { findUnique: vi.fn() } },
 }));
 
 import * as orderService from '../../src/services/orderService.js';
+import * as discountService from '../../src/services/discountService.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { createApp } from '../../src/app.js';
 
@@ -187,5 +193,114 @@ describe('PATCH /admin/orders/:id/status', () => {
     expect(orderService.updateAdminOrderStatus).toHaveBeenCalledWith('order-1', {
       status: 'CANCELLED',
     });
+  });
+});
+
+describe('POST /admin/discounts', () => {
+  it('returns 401 without Authorization', async () => {
+    const app = createApp();
+    const res = await app.request('/admin/discounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: 'SAVE10',
+        type: 'PERCENTAGE',
+        value: 10,
+      }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for non-admin', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'u1',
+      role: 'CUSTOMER',
+    } as never);
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('u1')
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(SECRET));
+    const app = createApp();
+    const res = await app.request('/admin/discounts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'SAVE10', type: 'PERCENTAGE', value: 10 }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects malformed code via Zod', async () => {
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code: 'x', type: 'PERCENTAGE', value: 10 }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects percentage value outside 1..100', async () => {
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code: 'BADPCT', type: 'PERCENTAGE', value: 101 }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('forwards valid create to discountService.createDiscount', async () => {
+    vi.mocked(discountService.createDiscount).mockResolvedValue({
+      id: 'd1',
+      code: 'SAVE10',
+      type: 'PERCENTAGE',
+      value: 10,
+      stripeCouponId: 'cp_1',
+    } as never);
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code: 'SAVE10', type: 'PERCENTAGE', value: 10 }),
+    });
+    expect(res.status).toBe(201);
+    expect(discountService.createDiscount).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'SAVE10', type: 'PERCENTAGE', value: 10 }),
+    );
+  });
+});
+
+describe('GET /admin/discounts', () => {
+  it('lists discounts through discountService.listDiscounts', async () => {
+    vi.mocked(discountService.listDiscounts).mockResolvedValue({
+      data: [],
+      page: 1,
+      limit: 20,
+      total: 0,
+      totalPages: 0,
+    });
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts?page=1&limit=20&active=true', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(discountService.listDiscounts).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, limit: 20, active: true }),
+    );
   });
 });

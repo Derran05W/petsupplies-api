@@ -13,9 +13,10 @@ model User {
   role      UserRole @default(CUSTOMER)
   createdAt DateTime @default(now())
 
-  orders    Order[]
-  cart      Cart?
-  addresses Address[]
+  orders          Order[]
+  cart            Cart?
+  addresses       Address[]
+  discountUsages  DiscountUsage[]
 }
 
 model Product {
@@ -52,12 +53,16 @@ model ProductImage {
 }
 
 model Cart {
-  id        String     @id @default(cuid())
-  userId    String     @unique
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  items     CartItem[]
+  id         String     @id @default(cuid())
+  userId     String     @unique
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  discountId String?
+  discount   Discount?  @relation(fields: [discountId], references: [id], onDelete: SetNull)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  items      CartItem[]
+
+  @@index([discountId])
 }
 
 model CartItem {
@@ -75,13 +80,22 @@ model CartItem {
 }
 
 model Order {
-  id                  String      @id @default(cuid())
+  id                  String       @id @default(cuid())
   userId              String
-  user                User        @relation(fields: [userId], references: [id])
-  status              OrderStatus @default(PENDING)
-  stripeSessionId     String?     @unique
+  user                User         @relation(fields: [userId], references: [id])
+  status              OrderStatus  @default(PENDING)
+  stripeSessionId     String?      @unique
   stripePaymentIntent String?
   totalCents          Int
+  subtotalCents       Int          @default(0)
+  shippingCents       Int          @default(0)
+  taxCents            Int          @default(0)
+  discountCents       Int          @default(0)
+  discountId          String?
+  discount            Discount?    @relation(fields: [discountId], references: [id], onDelete: SetNull)
+  discountCode        String?
+  discountType        DiscountType?
+  discountValue       Int?
   trackingNumber      String?
   carrier             String?
   shippedAt           DateTime?
@@ -92,12 +106,53 @@ model Order {
   shipRegion          String?
   shipPostalCode      String?
   shipCountry         String?
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
   items               OrderItem[]
+  discountUsage       DiscountUsage?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([discountId])
+}
+
+model Discount {
+  id             String       @id @default(cuid())
+  code           String       @unique
+  type           DiscountType
+  value          Int
+  minCartCents   Int?
+  maxRedemptions Int?
+  usedCount      Int          @default(0)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  active         Boolean      @default(true)
+  stripeCouponId String?      @unique
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  carts   Cart[]
+  orders  Order[]
+  usages  DiscountUsage[]
+
+  @@index([active, validFrom, validUntil])
+  @@index([type, active])
+}
+
+model DiscountUsage {
+  id         String   @id @default(cuid())
+  discountId String
+  discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId    String   @unique
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([discountId, userId])
+  @@unique([discountId, orderId])
+  @@index([userId, createdAt])
+  @@index([orderId])
 }
 
 model OrderItem {
@@ -151,4 +206,10 @@ enum ProductCategory {
   REPTILE
   ACCESSORIES
   HEALTH
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+  FREE_SHIPPING
 }

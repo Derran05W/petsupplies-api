@@ -45,6 +45,41 @@ router.delete('/items/:id', async (c) => {
   return c.body(null, 204);
 });
 
+const discountCodeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(3)
+    .max(32)
+    .regex(/^[A-Za-z0-9_-]+$/),
+});
+
+router.post('/discount', zValidator('json', discountCodeSchema), async (c) => {
+  const userId = c.get('userId');
+  const { code } = c.req.valid('json');
+  const result = await cartService.applyDiscount(userId, code);
+  if (!result.ok) {
+    const r = result.reason;
+    if (r === 'INVALID_FORMAT') {
+      return c.json({ error: 'Invalid discount code format', reason: r }, 400);
+    }
+    if (r === 'NOT_FOUND' || r === 'INACTIVE' || r === 'NOT_STARTED' || r === 'EXPIRED') {
+      return c.json({ error: 'Discount code is not valid', reason: r }, 400);
+    }
+    if (r === 'MIN_CART_NOT_MET' || r === 'MAX_REDEMPTIONS_REACHED' || r === 'ALREADY_USED') {
+      return c.json({ error: 'Discount cannot be applied to this cart', reason: r }, 409);
+    }
+    return c.json({ error: 'Discount code is not valid', reason: r }, 400);
+  }
+  return c.json(result.cart);
+});
+
+router.delete('/discount', async (c) => {
+  const userId = c.get('userId');
+  const cart = await cartService.removeDiscount(userId);
+  return c.json(cart);
+});
+
 router.delete('/', async (c) => {
   const userId = c.get('userId');
   await cartService.clear(userId);

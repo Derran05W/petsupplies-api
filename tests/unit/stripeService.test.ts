@@ -20,6 +20,11 @@ vi.mock('../../src/lib/stripe.js', () => ({
   },
 }));
 
+vi.mock('../../src/services/discountService.js', () => ({
+  validateById: vi.fn(),
+}));
+
+import * as discountService from '../../src/services/discountService.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { stripe } from '../../src/lib/stripe.js';
 import * as stripeService from '../../src/services/stripeService.js';
@@ -47,10 +52,22 @@ const mockCartItem = {
 const mockCart = {
   id: 'cart-1',
   userId: 'user-1',
+  discountId: null,
+  discount: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   items: [mockCartItem],
 };
+
+function makeTxMock(orderOverride: Record<string, unknown> = {}) {
+  return {
+    order: {
+      create: vi.fn().mockResolvedValue({ ...mockOrder, ...orderOverride }),
+    },
+    cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    cart: { update: vi.fn().mockResolvedValue({}) },
+  };
+}
 
 const mockOrder = {
   id: 'order-1',
@@ -141,10 +158,13 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
     beforeEach(() => {
       vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
 
-      const txMock = {
-        order: { create: vi.fn().mockResolvedValue(mockOrder) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const txMock = makeTxMock({
+        totalCents: 4599,
+        subtotalCents: 4000,
+        shippingCents: 599,
+        taxCents: 0,
+        discountCents: 0,
+      });
       (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
         async (cb: (tx: typeof txMock) => Promise<unknown>) => cb(txMock),
       );
@@ -165,10 +185,13 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       await stripeService.createCheckoutSessionFromCart('user-1');
 
       const txMockCall = (prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      const localTxMock = {
-        order: { create: vi.fn().mockResolvedValue(mockOrder) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const localTxMock = makeTxMock({
+        totalCents: 4599,
+        subtotalCents: 4000,
+        shippingCents: 599,
+        taxCents: 0,
+        discountCents: 0,
+      });
       await txMockCall(localTxMock);
 
       expect(localTxMock.order.create).toHaveBeenCalledWith(
@@ -176,7 +199,11 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
           data: expect.objectContaining({
             userId: 'user-1',
             status: 'PENDING',
-            totalCents: 4000, // 2 * 2000
+            subtotalCents: 4000,
+            shippingCents: 599,
+            taxCents: 0,
+            discountCents: 0,
+            totalCents: 4599,
           }),
         }),
       );
@@ -186,10 +213,13 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       await stripeService.createCheckoutSessionFromCart('user-1');
 
       const txMockCall = (prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      const localTxMock = {
-        order: { create: vi.fn().mockResolvedValue(mockOrder) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const localTxMock = makeTxMock({
+        totalCents: 4599,
+        subtotalCents: 4000,
+        shippingCents: 599,
+        taxCents: 0,
+        discountCents: 0,
+      });
       await txMockCall(localTxMock);
 
       expect(localTxMock.order.create).toHaveBeenCalledWith(
@@ -213,14 +243,21 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       await stripeService.createCheckoutSessionFromCart('user-1');
 
       const txMockCall = (prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      const localTxMock = {
-        order: { create: vi.fn().mockResolvedValue(mockOrder) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const localTxMock = makeTxMock({
+        totalCents: 4599,
+        subtotalCents: 4000,
+        shippingCents: 599,
+        taxCents: 0,
+        discountCents: 0,
+      });
       await txMockCall(localTxMock);
 
       expect(localTxMock.cartItem.deleteMany).toHaveBeenCalledWith({
         where: { cartId: 'cart-1' },
+      });
+      expect(localTxMock.cart.update).toHaveBeenCalledWith({
+        where: { id: 'cart-1' },
+        data: { discountId: null },
       });
     });
 
@@ -283,10 +320,15 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       };
       vi.mocked(prisma.cart.findUnique).mockResolvedValue(cartWithPrice as never);
 
-      const txMock = {
-        order: { create: vi.fn().mockResolvedValue({ ...mockOrder, totalCents: subtotalCents }) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const shippingCents = subtotalCents >= 5000 ? 0 : 599;
+      const totalCents = subtotalCents + shippingCents;
+      const txMock = makeTxMock({
+        totalCents,
+        subtotalCents,
+        shippingCents,
+        taxCents: 0,
+        discountCents: 0,
+      });
       (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
         async (cb: (tx: typeof txMock) => Promise<unknown>) => cb(txMock),
       );
@@ -359,10 +401,13 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
     it('throws HTTPException 500 when session.url is null', async () => {
       vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
 
-      const txMock = {
-        order: { create: vi.fn().mockResolvedValue(mockOrder) },
-        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      };
+      const txMock = makeTxMock({
+        totalCents: 4599,
+        subtotalCents: 4000,
+        shippingCents: 599,
+        taxCents: 0,
+        discountCents: 0,
+      });
       (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
         async (cb: (tx: typeof txMock) => Promise<unknown>) => cb(txMock),
       );
@@ -380,6 +425,104 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
         expect(e).toBeInstanceOf(HTTPException);
         expect((e as HTTPException).status).toBe(500);
       }
+    });
+  });
+});
+
+describe('stripeService.createCheckoutSessionFromCart discount flows', () => {
+  beforeEach(() => {
+    vi.mocked(discountService.validateById).mockReset();
+  });
+
+  it('revalidates validateById and passes Stripe coupon for percentage discount', async () => {
+    vi.mocked(discountService.validateById).mockResolvedValue({
+      ok: true,
+      discount: {
+        discountId: 'd1',
+        code: 'SAVE10',
+        type: 'PERCENTAGE',
+        value: 10,
+        discountCents: 400,
+        shippingDiscountCents: 0,
+        stripeCouponId: 'cp_pct',
+      },
+    });
+    const cartWithDisc = {
+      ...mockCart,
+      discountId: 'd1',
+      discount: { id: 'd1', code: 'SAVE10' },
+    };
+    vi.mocked(prisma.cart.findUnique).mockResolvedValue(cartWithDisc as never);
+    const txMock = makeTxMock({
+      subtotalCents: 4000,
+      shippingCents: 599,
+      taxCents: 0,
+      discountCents: 400,
+      totalCents: 4199,
+    });
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
+      (cb as (tx: unknown) => unknown)(txMock),
+    );
+    vi.mocked(stripe.checkout.sessions.create).mockResolvedValue(mockSession as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder as never);
+
+    await stripeService.createCheckoutSessionFromCart('user-1');
+
+    expect(discountService.validateById).toHaveBeenCalledWith('d1', 'user-1', 4000);
+    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discounts: [{ coupon: 'cp_pct' }],
+        metadata: { orderId: 'order-1', discountId: 'd1' },
+      }),
+    );
+    expect(txMock.cart.update).toHaveBeenCalled();
+  });
+
+  it('does not pass discounts for FREE_SHIPPING but uses zero shipping option below threshold', async () => {
+    vi.mocked(discountService.validateById).mockResolvedValue({
+      ok: true,
+      discount: {
+        discountId: 'd2',
+        code: 'FREESHIP',
+        type: 'FREE_SHIPPING',
+        value: 0,
+        discountCents: 0,
+        shippingDiscountCents: 599,
+        stripeCouponId: null,
+      },
+    });
+    const cartWithDisc = { ...mockCart, discountId: 'd2', discount: { id: 'd2' } };
+    vi.mocked(prisma.cart.findUnique).mockResolvedValue(cartWithDisc as never);
+    const txMock = makeTxMock({
+      subtotalCents: 4000,
+      shippingCents: 0,
+      taxCents: 0,
+      discountCents: 0,
+      totalCents: 4000,
+    });
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
+      (cb as (tx: unknown) => unknown)(txMock),
+    );
+    vi.mocked(stripe.checkout.sessions.create).mockResolvedValue(mockSession as never);
+    vi.mocked(prisma.order.update).mockResolvedValue(mockOrder as never);
+
+    await stripeService.createCheckoutSessionFromCart('user-1');
+
+    const arg = vi.mocked(stripe.checkout.sessions.create).mock.calls[0]?.[0];
+    expect(arg).toBeDefined();
+    expect(arg?.discounts).toBeUndefined();
+    expect(arg?.shipping_options?.[0]?.shipping_rate_data?.fixed_amount?.amount).toBe(0);
+  });
+
+  it('throws 409 when stored discount becomes invalid before checkout', async () => {
+    vi.mocked(discountService.validateById).mockResolvedValue({
+      ok: false,
+      reason: 'EXPIRED',
+    });
+    const cartWithDisc = { ...mockCart, discountId: 'd1', discount: { id: 'd1' } };
+    vi.mocked(prisma.cart.findUnique).mockResolvedValue(cartWithDisc as never);
+    await expect(stripeService.createCheckoutSessionFromCart('user-1')).rejects.toMatchObject({
+      status: 409,
     });
   });
 });
