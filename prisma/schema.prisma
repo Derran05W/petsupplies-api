@@ -17,6 +17,7 @@ model User {
   cart            Cart?
   addresses       Address[]
   discountUsages  DiscountUsage[]
+  reviews         Review[]
 }
 
 model Product {
@@ -32,12 +33,34 @@ model Product {
   searchVector  Unsupported("tsvector")?
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
+  avgRating     Float?
+  reviewCount   Int                       @default(0)
 
   orderItems    OrderItem[]
   cartItems     CartItem[]
   images        ProductImage[]
+  reviews       Review[]
 
   @@index([category, active])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  title     String?
+  body      String
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId, createdAt])
+  @@index([productId, rating])
+  @@index([userId, createdAt])
 }
 
 model ProductImage {

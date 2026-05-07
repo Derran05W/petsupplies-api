@@ -1,7 +1,13 @@
 import { ProductCategory, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
-export type ProductSortOption = 'price_asc' | 'price_desc' | 'newest' | 'popularity';
+export type ProductSortOption =
+  | 'price_asc'
+  | 'price_desc'
+  | 'newest'
+  | 'popularity'
+  | 'rating_desc'
+  | 'rating_asc';
 
 export interface ListParams {
   category?: ProductCategory;
@@ -21,6 +27,8 @@ const sortMap: Record<ProductSortOption, Prisma.ProductOrderByWithRelationInput>
   price_desc: { price: 'desc' },
   newest: { createdAt: 'desc' },
   popularity: { createdAt: 'desc' },
+  rating_desc: { avgRating: { sort: 'desc', nulls: 'last' } },
+  rating_asc: { avgRating: { sort: 'asc', nulls: 'last' } },
 };
 
 export async function list(params: ListParams) {
@@ -129,6 +137,10 @@ function buildOrderClause(sort?: ProductSortOption): string {
       return 'price ASC';
     case 'price_desc':
       return 'price DESC';
+    case 'rating_desc':
+      return '"avgRating" DESC NULLS LAST';
+    case 'rating_asc':
+      return '"avgRating" ASC NULLS LAST';
     default:
       return '"createdAt" DESC';
   }

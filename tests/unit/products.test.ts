@@ -85,6 +85,17 @@ describe('GET /products', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts rating_desc as a valid sort option', async () => {
+    vi.mocked(productService.list).mockResolvedValue({ ...mockListResult, products: [] });
+
+    const app = createApp();
+    const res = await app.request('/products?sort=rating_desc');
+    expect(res.status).toBe(200);
+    expect(productService.list).toHaveBeenCalledWith(
+      expect.objectContaining({ sort: 'rating_desc' }),
+    );
+  });
+
   it('returns 400 for invalid category', async () => {
     const app = createApp();
     const res = await app.request('/products?category=INVALID');
