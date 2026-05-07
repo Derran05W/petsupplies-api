@@ -28,6 +28,8 @@ const mockProduct = (overrides: Record<string, unknown> = {}) => ({
   searchVector: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+  avgRating: null as number | null,
+  reviewCount: 0,
   images: [],
   ...overrides,
 });
@@ -193,6 +195,59 @@ describe('productService.list', () => {
 
     expect(result.products[0].inStock).toBe(false);
   });
+
+  it('exposes avgRating and reviewCount on list results', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([
+      mockProduct({ avgRating: 4.5, reviewCount: 12 }),
+    ] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(1);
+
+    const result = await productService.list({});
+
+    expect(result.products[0].avgRating).toBe(4.5);
+    expect(result.products[0].reviewCount).toBe(12);
+  });
+
+  it('sorts by rating_desc with avgRating nulls last', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'rating_desc' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, unknown>;
+    };
+    expect(call.orderBy).toEqual({ avgRating: { sort: 'desc', nulls: 'last' } });
+  });
+
+  it('sorts by rating_asc with avgRating nulls last', async () => {
+    vi.mocked(prisma.product.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+
+    await productService.list({ sort: 'rating_asc' });
+
+    const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, unknown>;
+    };
+    expect(call.orderBy).toEqual({ avgRating: { sort: 'asc', nulls: 'last' } });
+  });
+
+  it('?q= search composes with sort=rating_desc', async () => {
+    const product = mockProduct();
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: 'prod-1' }] as never)
+      .mockResolvedValueOnce([{ count: BigInt(1) }] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([product] as never);
+
+    await productService.list({ q: 'royal', sort: 'rating_desc' });
+
+    const rawCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0][0] as string;
+    expect(rawCall).toContain('"avgRating" DESC NULLS LAST');
+    const findCall = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
+      orderBy: Record<string, unknown>;
+    };
+    expect(findCall.orderBy).toEqual({ avgRating: { sort: 'desc', nulls: 'last' } });
+  });
 });
 
 describe('productService.getBySlug', () => {
@@ -226,5 +281,16 @@ describe('productService.getBySlug', () => {
     const result = await productService.getBySlug('inactive-product');
 
     expect(result).toBeNull();
+  });
+
+  it('exposes avgRating and reviewCount on getBySlug result', async () => {
+    const product = mockProduct({ avgRating: 3.25, reviewCount: 4 });
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
+
+    const result = await productService.getBySlug('royal-canin');
+
+    expect(result).not.toBeNull();
+    expect(result!.avgRating).toBe(3.25);
+    expect(result!.reviewCount).toBe(4);
   });
 });
