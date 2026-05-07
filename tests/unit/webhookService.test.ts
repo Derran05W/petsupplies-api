@@ -9,7 +9,12 @@ vi.mock('../../src/lib/prisma.js', () => ({
   },
 }));
 
+vi.mock('../../src/services/emailService.js', () => ({
+  sendOrderConfirmation: vi.fn(),
+}));
+
 import { prisma } from '../../src/lib/prisma.js';
+import { sendOrderConfirmation } from '../../src/services/emailService.js';
 import * as webhookService from '../../src/services/webhookService.js';
 
 const orderItem = {
@@ -18,6 +23,7 @@ const orderItem = {
   productId: 'prod-1',
   quantity: 2,
   priceCents: 500,
+  product: { id: 'prod-1', name: 'Kibble' },
 };
 const pendingOrderWithItems = {
   id: 'order-1',
@@ -26,10 +32,23 @@ const pendingOrderWithItems = {
   totalCents: 5000,
   stripeSessionId: 'cs_test_123',
   stripePaymentIntent: null,
+  user: { email: 'buyer@example.com', name: 'Buyer' },
   items: [orderItem],
   createdAt: new Date(),
   updatedAt: new Date(),
 };
+
+function mockFindUniqueAfterPaid(paidOverrides: Record<string, unknown> = {}) {
+  vi.mocked(prisma.order.findUnique)
+    .mockResolvedValueOnce(pendingOrderWithItems as never)
+    .mockResolvedValueOnce({
+      ...pendingOrderWithItems,
+      status: 'PAID',
+      totalCents: 5200,
+      stripePaymentIntent: 'pi_test_789',
+      ...paidOverrides,
+    } as never);
+}
 const pendingOrderNoItems = { ...pendingOrderWithItems, items: [] };
 
 function makeSession(overrides: Partial<Stripe.Checkout.Session>): Stripe.Checkout.Session {
@@ -48,7 +67,8 @@ beforeEach(() => {
 describe('webhookService', () => {
   describe('handleSessionCompleted', () => {
     it('marks PAID, decrements stock, sets payment intent and totalCents', async () => {
-      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
         product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -57,6 +77,23 @@ describe('webhookService', () => {
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
 
       await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(sendOrderConfirmation).toHaveBeenCalledOnce();
+      expect(sendOrderConfirmation).toHaveBeenCalledWith({
+        orderId: 'order-1',
+        to: 'buyer@example.com',
+        customerName: 'Buyer',
+        totalCents: 5200,
+        items: [
+          {
+            productId: 'prod-1',
+            name: 'Kibble',
+            quantity: 2,
+            priceCents: 500,
+          },
+        ],
+        orderUrl: 'http://localhost:3000/orders/order-1',
+      });
 
       expect(txMock.$queryRaw).toHaveBeenCalled();
       expect(txMock.product.updateMany).toHaveBeenCalledWith({
@@ -74,7 +111,8 @@ describe('webhookService', () => {
     });
 
     it('writes Stripe shipping details to Order snapshot fields', async () => {
-      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
         product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -124,6 +162,7 @@ describe('webhookService', () => {
       await webhookService.handleSessionCompleted(makeSession({}));
 
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
     });
 
     it('cancels on oversold, logs oversold_incident', async () => {
@@ -157,7 +196,86 @@ describe('webhookService', () => {
         where: { id: 'order-1' },
         data: { status: 'CANCELLED' },
       });
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
       errSpy.mockRestore();
+    });
+
+    it('does not send email when lock returns no pending row', async () => {
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        product: { updateMany: vi.fn() },
+        order: { update: vi.fn() },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(txMock.product.updateMany).not.toHaveBeenCalled();
+      expect(txMock.order.update).not.toHaveBeenCalled();
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
+    });
+
+    it('resolves and keeps PAID when sendOrderConfirmation returns ok false', async () => {
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({
+        ok: false,
+        error: 'provider unavailable',
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      mockFindUniqueAfterPaid();
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await expect(webhookService.handleSessionCompleted(makeSession({}))).resolves.toBeUndefined();
+
+      expect(txMock.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'PAID' }),
+        }),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[email] order confirmation failed',
+        expect.objectContaining({ orderId: 'order-1', template: 'order-confirmation' }),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('resolves and keeps PAID when sendOrderConfirmation rejects', async () => {
+      vi.mocked(sendOrderConfirmation).mockRejectedValue(new Error('unexpected throw'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      mockFindUniqueAfterPaid();
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await expect(webhookService.handleSessionCompleted(makeSession({}))).resolves.toBeUndefined();
+
+      expect(txMock.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'PAID' }),
+        }),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[email] order confirmation failed',
+        expect.objectContaining({
+          orderId: 'order-1',
+          template: 'order-confirmation',
+          error: 'unexpected throw',
+        }),
+      );
+
+      warnSpy.mockRestore();
     });
 
     it('returns early without tx when session has no matching order', async () => {
@@ -166,10 +284,19 @@ describe('webhookService', () => {
       await webhookService.handleSessionCompleted(makeSession({ id: 'cs_unknown' }));
 
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(sendOrderConfirmation).not.toHaveBeenCalled();
     });
 
     it('uses order.totalCents when amount_total is null', async () => {
-      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      vi.mocked(prisma.order.findUnique)
+        .mockResolvedValueOnce(pendingOrderWithItems as never)
+        .mockResolvedValueOnce({
+          ...pendingOrderWithItems,
+          status: 'PAID',
+          totalCents: 5000,
+          stripePaymentIntent: 'pi_test_789',
+        } as never);
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
         product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -184,6 +311,13 @@ describe('webhookService', () => {
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ totalCents: 5000, status: 'PAID' }),
+        }),
+      );
+
+      expect(sendOrderConfirmation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          totalCents: 5000,
+          orderUrl: 'http://localhost:3000/orders/order-1',
         }),
       );
     });

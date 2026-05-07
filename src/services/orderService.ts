@@ -1,6 +1,8 @@
 import { HTTPException } from 'hono/http-exception';
 import type { OrderStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { env } from '../types/env.js';
+import { sendShippingNotification } from './emailService.js';
 
 // ── Input / output types ──────────────────────────────────────────────────────
 
@@ -185,7 +187,10 @@ export async function getAdminOrder(orderId: string) {
 export async function updateAdminOrderStatus(orderId: string, input: UpdateAdminOrderStatusInput) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { items: true },
+    include: {
+      items: true,
+      user: { select: { email: true, name: true } },
+    },
   });
 
   if (!order) {
@@ -221,6 +226,33 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
         shippedAt: new Date(),
       },
     });
+
+    try {
+      const shipResult = await sendShippingNotification({
+        orderId,
+        to: order.user.email,
+        customerName: order.user.name,
+        trackingNumber: input.trackingNumber!,
+        carrier: input.carrier!,
+        orderUrl: `${env.FRONTEND_URL}/orders/${orderId}`,
+      });
+      if (!shipResult.ok) {
+        console.warn('[email] shipping notification failed', {
+          template: 'shipping-notification',
+          orderId,
+          providerMessageId: shipResult.messageId,
+          error: shipResult.error,
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'unknown error';
+      console.warn('[email] shipping notification failed', {
+        template: 'shipping-notification',
+        orderId,
+        error: message,
+      });
+    }
+
     return getAdminOrder(orderId);
   }
 

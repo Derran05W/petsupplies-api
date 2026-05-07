@@ -8,8 +8,9 @@ Blockers and operational steps that are **not** fully automated in this reposito
 2. **Supabase**: Run the auth → `User` sync trigger from `supabase/triggers/` in the Supabase SQL editor (see deployment runbook).
 3. **Admin users**: Promote at least one user to `ADMIN` with a one-off SQL update in Supabase; there is no public promotion API.
 4. **Stripe**: Create products/prices as needed; register the production webhook URL for `/webhooks/stripe` with the signing secret in env; verify idempotency in staging first.
-5. **Environment**: Set `DATABASE_URL`, `SUPABASE_*`, `STRIPE_*`, `FRONTEND_URL`, `PORT`, and shipping-related cents vars per `.env.example`. `DIRECT_URL` is not used by this API (Prisma 7 uses `DATABASE_URL` in `prisma.config.ts` only).
-6. **Smoke test**: Health check (`GET /health`), anon product list, authenticated cart round-trip, and a small test order in Stripe test mode before switching live keys.
+5. **Environment**: Set `DATABASE_URL`, `SUPABASE_*`, `STRIPE_*`, `FRONTEND_URL`, `PORT`, `RESEND_API_KEY`, `EMAIL_FROM`, and shipping-related cents vars per `.env.example`. `DIRECT_URL` is not used by this API (Prisma 7 uses `DATABASE_URL` in `prisma.config.ts` only).
+6. **Resend**: Set `RESEND_API_KEY` and `EMAIL_FROM` per Railway service; verify the sender domain in the Resend dashboard; redeploy; confirm transactional mail on staging checkout + admin shipped transition (details in [`docs/email.md`](./email.md)).
+7. **Smoke test**: Health check (`GET /health`), anon product list, authenticated cart round-trip, and a small test order in Stripe test mode before switching live keys.
 
 ## Quality gates before tagging a release
 
@@ -22,5 +23,5 @@ Run the same gates as CI (and Husky pre-commit where applicable):
 
 ## Support references
 
-- Deployment and hosting: `docs/deployment.md`
+- Deployment, hosting, and email: `docs/deployment.md`, `docs/email.md`
 - How tests are organized: `docs/testing.md`

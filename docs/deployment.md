@@ -69,6 +69,16 @@ All values are environment-specific. Set every variable below in each Railway se
 - `PORT` — Railway sets this automatically; do not hardcode.
 - `FRONTEND_URL` — used for CORS and Stripe success/cancel URLs. Distinct per env.
 
+### Resend / transactional email
+
+Transactional email uses Resend (`resend`). Set these **per Railway service** (staging and prod each need their own key and verified sender).
+
+1. Create an API key in the Resend dashboard for that environment (staging vs prod may use separate Resend workspaces or keys).
+2. **Verify** the sending domain (or onboarding domain) for the sender you will use — unverified senders typically fail with HTTP 403 from the provider.
+3. Set `RESEND_API_KEY` and `EMAIL_FROM` in the Railway service env vars (`EMAIL_FROM` is usually `Friendly Name <orders@your-verified-domain>`).
+4. **Redeploy** the service after changing env vars so the process picks them up.
+5. Smoke test: complete a staging checkout and confirm **order confirmation** email; mark an order **PAID → SHIPPED** in admin and confirm **shipping** email (body shows raw carrier + tracking number only; no carrier tracking URL map in Phase 11). See [`docs/email.md`](./email.md) for idempotency, logging, and troubleshooting (`401`, `403`, `429`).
+
 ### Shipping (optional — has defaults in `src/types/env.ts`)
 
 - `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents).

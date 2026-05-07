@@ -1,5 +1,7 @@
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma.js';
+import { env } from '../types/env.js';
+import { sendOrderConfirmation } from './emailService.js';
 
 function paymentIntentString(pi: Stripe.Checkout.Session['payment_intent']): string | null {
   return typeof pi === 'string' ? pi : null;
@@ -8,7 +10,14 @@ function paymentIntentString(pi: Stripe.Checkout.Session['payment_intent']): str
 export async function handleSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const order = await prisma.order.findUnique({
     where: { stripeSessionId: session.id },
-    include: { items: true },
+    include: {
+      user: { select: { email: true, name: true } },
+      items: {
+        include: {
+          product: { select: { id: true, name: true } },
+        },
+      },
+    },
   });
 
   if (!order) {
@@ -33,6 +42,8 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
   }
 
   const totalCents = session.amount_total ?? order.totalCents;
+
+  let transitionedToPaid = false;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -77,6 +88,7 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
           ...shipData,
         },
       });
+      transitionedToPaid = true;
     });
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('oversold:')) {
@@ -95,6 +107,60 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
       return;
     }
     throw err;
+  }
+
+  if (transitionedToPaid) {
+    try {
+      const fresh = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          user: { select: { email: true, name: true } },
+          items: {
+            include: {
+              product: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      if (!fresh || fresh.status !== 'PAID') {
+        console.warn('[email] order confirmation skipped: unexpected post-commit order state', {
+          orderId: order.id,
+          status: fresh?.status,
+        });
+        return;
+      }
+
+      const result = await sendOrderConfirmation({
+        orderId: fresh.id,
+        to: fresh.user.email,
+        customerName: fresh.user.name,
+        totalCents: fresh.totalCents,
+        items: fresh.items.map((i) => ({
+          productId: i.product.id,
+          name: i.product.name,
+          quantity: i.quantity,
+          priceCents: i.priceCents,
+        })),
+        orderUrl: `${env.FRONTEND_URL}/orders/${fresh.id}`,
+      });
+
+      if (!result.ok) {
+        console.warn('[email] order confirmation failed', {
+          template: 'order-confirmation',
+          orderId: order.id,
+          providerMessageId: result.messageId,
+          error: result.error,
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'unknown error';
+      console.warn('[email] order confirmation failed', {
+        template: 'order-confirmation',
+        orderId: order.id,
+        error: message,
+      });
+    }
   }
 }
 
