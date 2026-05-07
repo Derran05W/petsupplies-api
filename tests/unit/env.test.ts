@@ -34,6 +34,98 @@ describe('validateEnv', () => {
     expect(() => validateEnv(rest as NodeJS.ProcessEnv)).toThrow(/FRONTEND_URL/);
   });
 
+  it('defaults EMAIL_FROM in development and test when unset', () => {
+    expect(
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'development',
+      } as NodeJS.ProcessEnv).EMAIL_FROM,
+    ).toBe('Pet Supplies <dev@localhost>');
+
+    expect(
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'test',
+      } as NodeJS.ProcessEnv).EMAIL_FROM,
+    ).toBe('Pet Supplies <dev@localhost>');
+  });
+
+  it('allows missing RESEND_API_KEY in development', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'development',
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it('allows missing RESEND_API_KEY in test', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'test',
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it('requires RESEND_API_KEY and EMAIL_FROM in production', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        EMAIL_FROM: 'Pet <o@x.com>',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/RESEND_API_KEY/);
+
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: 're_xxx',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/EMAIL_FROM/);
+
+    expect(
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: 're_xxx',
+        EMAIL_FROM: 'Pet <o@x.com>',
+      } as NodeJS.ProcessEnv),
+    ).toMatchObject({ NODE_ENV: 'production' });
+  });
+
+  it('throws in production when RESEND_API_KEY is blank', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: '   ',
+        EMAIL_FROM: 'Pet Supplies <orders@example.com>',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/RESEND_API_KEY/);
+  });
+
+  it('throws in production when EMAIL_FROM is blank', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: 're_test_key',
+        EMAIL_FROM: '',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/EMAIL_FROM/);
+  });
+
+  it('rejects empty EMAIL_FROM when the variable is set but whitespace-only', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        EMAIL_FROM: ' \t ',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/EMAIL_FROM cannot be empty when set/);
+  });
+
   it('coerces PORT from string to number', () => {
     const result = validateEnv({ ...VALID, PORT: '4000' });
     expect(result.PORT).toBe(4000);

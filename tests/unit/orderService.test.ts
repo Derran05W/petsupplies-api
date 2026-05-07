@@ -15,7 +15,12 @@ vi.mock('../../src/lib/prisma.js', () => ({
   },
 }));
 
+vi.mock('../../src/services/emailService.js', () => ({
+  sendShippingNotification: vi.fn(),
+}));
+
 import { prisma } from '../../src/lib/prisma.js';
+import { sendShippingNotification } from '../../src/services/emailService.js';
 import * as orderService from '../../src/services/orderService.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -48,6 +53,7 @@ const baseOrder = {
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   items: [orderItem],
+  user: { email: 'customer@example.com', name: 'Customer' },
 };
 
 const paidOrder = { ...baseOrder, status: 'PAID' as const, stripePaymentIntent: 'pi_123' };
@@ -201,6 +207,7 @@ describe('orderService.updateAdminOrderStatus', () => {
 
     // Same status — no update should be issued
     expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(sendShippingNotification).not.toHaveBeenCalled();
   });
 
   it('PENDING → CANCELLED updates status without stock change', async () => {
@@ -214,9 +221,11 @@ describe('orderService.updateAdminOrderStatus', () => {
       data: { status: 'CANCELLED' },
     });
     expect(prisma.product.update).not.toHaveBeenCalled();
+    expect(sendShippingNotification).not.toHaveBeenCalled();
   });
 
   it('PAID → SHIPPED sets tracking fields and shippedAt', async () => {
+    vi.mocked(sendShippingNotification).mockResolvedValue({ ok: true });
     setupFindUnique(paidOrder);
     vi.mocked(prisma.order.update).mockResolvedValue({} as never);
 
@@ -235,6 +244,62 @@ describe('orderService.updateAdminOrderStatus', () => {
         shippedAt: expect.any(Date),
       }),
     });
+
+    expect(sendShippingNotification).toHaveBeenCalledOnce();
+    expect(sendShippingNotification).toHaveBeenCalledWith({
+      orderId: 'order-1',
+      to: 'customer@example.com',
+      customerName: 'Customer',
+      trackingNumber: 'TRACK123',
+      carrier: 'Canada Post',
+      orderUrl: 'http://localhost:3000/orders/order-1',
+    });
+  });
+
+  it('PAID → SHIPPED still returns updated order when email returns ok false', async () => {
+    vi.mocked(sendShippingNotification).mockResolvedValue({ ok: false, error: 'down' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setupFindUnique(paidOrder);
+    vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+
+    const result = await orderService.updateAdminOrderStatus('order-1', {
+      status: 'SHIPPED',
+      trackingNumber: 'TRACK123',
+      carrier: 'Canada Post',
+    });
+
+    expect(sendShippingNotification).toHaveBeenCalledOnce();
+    expect(result.id).toBe('order-1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[email] shipping notification failed',
+      expect.objectContaining({ orderId: 'order-1', template: 'shipping-notification' }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('PAID → SHIPPED still returns updated order when email rejects', async () => {
+    vi.mocked(sendShippingNotification).mockRejectedValue(new Error('transport boom'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setupFindUnique(paidOrder);
+    vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+
+    const result = await orderService.updateAdminOrderStatus('order-1', {
+      status: 'SHIPPED',
+      trackingNumber: 'TRACK123',
+      carrier: 'Canada Post',
+    });
+
+    expect(sendShippingNotification).toHaveBeenCalledOnce();
+    expect(result.id).toBe('order-1');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[email] shipping notification failed',
+      expect.objectContaining({
+        orderId: 'order-1',
+        template: 'shipping-notification',
+        error: 'transport boom',
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it('PAID → CANCELLED locks order, restores stock in transaction, and logs [admin_cancel_paid_incident]', async () => {
@@ -263,6 +328,7 @@ describe('orderService.updateAdminOrderStatus', () => {
       '[admin_cancel_paid_incident]',
       expect.stringContaining('order-1'),
     );
+    expect(sendShippingNotification).not.toHaveBeenCalled();
     errSpy.mockRestore();
   });
 
@@ -276,6 +342,7 @@ describe('orderService.updateAdminOrderStatus', () => {
       where: { id: 'order-1' },
       data: { status: 'FULFILLED' },
     });
+    expect(sendShippingNotification).not.toHaveBeenCalled();
   });
 
   it('throws 409 for invalid transition (PENDING → SHIPPED)', async () => {
@@ -288,6 +355,7 @@ describe('orderService.updateAdminOrderStatus', () => {
         carrier: 'C',
       }),
     ).rejects.toMatchObject({ status: 409 });
+    expect(sendShippingNotification).not.toHaveBeenCalled();
   });
 
   it('throws 409 for terminal → any transition (CANCELLED → PAID)', async () => {
@@ -299,6 +367,7 @@ describe('orderService.updateAdminOrderStatus', () => {
     await expect(
       orderService.updateAdminOrderStatus('order-1', { status: 'FULFILLED' }),
     ).rejects.toMatchObject({ status: 409 });
+    expect(sendShippingNotification).not.toHaveBeenCalled();
   });
 
   it('throws 404 when order not found', async () => {
