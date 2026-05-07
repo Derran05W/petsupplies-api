@@ -12,6 +12,7 @@ import { reviewsRouter } from './routes/reviews.js';
 import { adminRouter } from './routes/admin.js';
 import { usersRouter } from './routes/users.js';
 import { addressesRouter } from './routes/addresses.js';
+import { wishlistRouter } from './routes/wishlist.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -35,6 +36,7 @@ export function createApp() {
   app.route('/admin', adminRouter);
   app.route('/users', usersRouter);
   app.route('/users/me/addresses', addressesRouter);
+  app.route('/users/me/wishlist', wishlistRouter);
 
   return app;
 }
