@@ -5,12 +5,44 @@ vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     order: { findUnique: vi.fn(), update: vi.fn() },
     product: {},
+    subscription: {
+      updateMany: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
 
+vi.mock('../../src/lib/stripe.js', () => ({
+  stripe: {
+    subscriptions: {
+      retrieve: vi.fn().mockResolvedValue({
+        id: 'sub_retrieved',
+        metadata: {
+          userId: 'user-1',
+          productId: 'prod-1',
+          quantity: '1',
+          interval: 'WEEK_4',
+        },
+        items: { data: [{ quantity: 1, price: { id: 'price_1' } }] },
+        status: 'active',
+        canceled_at: null,
+        pause_collection: null,
+        current_period_end: 2000000000,
+      }),
+    },
+  },
+}));
+
+vi.mock('../../src/services/subscriptionService.js', () => ({
+  syncSubscriptionFromStripe: vi.fn(),
+  applyInvoiceToOrder: vi.fn(),
+}));
+
 vi.mock('../../src/services/emailService.js', () => ({
   sendOrderConfirmation: vi.fn(),
+  sendSubscriptionPaymentIssue: vi.fn(),
 }));
 
 vi.mock('../../src/services/discountService.js', () => ({
@@ -19,7 +51,9 @@ vi.mock('../../src/services/discountService.js', () => ({
 
 import * as discountService from '../../src/services/discountService.js';
 import { prisma } from '../../src/lib/prisma.js';
+import { stripe } from '../../src/lib/stripe.js';
 import { sendOrderConfirmation } from '../../src/services/emailService.js';
+import * as subscriptionService from '../../src/services/subscriptionService.js';
 import * as webhookService from '../../src/services/webhookService.js';
 
 const orderItem = {
@@ -496,6 +530,57 @@ describe('webhookService', () => {
       );
       expect(prisma.order.findUnique).not.toHaveBeenCalled();
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('subscription flows', () => {
+    it('handleSessionCompleted routes subscription mode to Stripe retrieve + sync', async () => {
+      vi.mocked(subscriptionService.syncSubscriptionFromStripe).mockClear();
+      await webhookService.handleSessionCompleted({
+        id: 'cs_sub',
+        mode: 'subscription',
+        subscription: 'sub_ext',
+      } as unknown as Stripe.Checkout.Session);
+
+      expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith(
+        'sub_ext',
+        expect.objectContaining({ expand: ['items.data.price'] }),
+      );
+      expect(subscriptionService.syncSubscriptionFromStripe).toHaveBeenCalled();
+    });
+
+    it('handleInvoicePaid delegates when invoice has subscription', async () => {
+      vi.mocked(subscriptionService.applyInvoiceToOrder).mockClear();
+      await webhookService.handleInvoicePaid({
+        id: 'in_1',
+        subscription: 'sub_x',
+      } as unknown as Stripe.Invoice);
+      expect(subscriptionService.applyInvoiceToOrder).toHaveBeenCalled();
+    });
+
+    it('handleInvoicePaid skips without subscription', async () => {
+      vi.mocked(subscriptionService.applyInvoiceToOrder).mockClear();
+      await webhookService.handleInvoicePaid({
+        id: 'in_1',
+        subscription: null,
+      } as unknown as Stripe.Invoice);
+      expect(subscriptionService.applyInvoiceToOrder).not.toHaveBeenCalled();
+    });
+
+    it('handleSubscriptionDeleted updates local row when present', async () => {
+      vi.mocked(prisma.subscription.updateMany).mockResolvedValue({ count: 1 } as never);
+      vi.mocked(prisma.subscription.findFirst).mockResolvedValue({
+        id: 'slocal',
+        userId: 'user-1',
+        productId: 'prod-1',
+      } as never);
+
+      await webhookService.handleSubscriptionDeleted({
+        id: 'sub_x',
+        canceled_at: Math.floor(Date.now() / 1000),
+      } as unknown as Stripe.Subscription);
+
+      expect(prisma.subscription.updateMany).toHaveBeenCalled();
     });
   });
 });

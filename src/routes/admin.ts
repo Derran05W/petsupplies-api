@@ -6,6 +6,7 @@ import { adminOnly } from '../middleware/adminOnly.js';
 import * as orderService from '../services/orderService.js';
 import * as discountService from '../services/discountService.js';
 import { StripeCouponRejectedError } from '../services/discountService.js';
+import * as subscriptionService from '../services/subscriptionService.js';
 import type { Variables } from '../types/hono.js';
 
 const router = new Hono<{ Variables: Variables }>();
@@ -156,5 +157,43 @@ router.get('/discounts', zValidator('query', listDiscountsQuerySchema), async (c
   });
   return c.json(result);
 });
+
+const adminProductIdParamSchema = z.object({
+  id: z.string().regex(/^c[a-z0-9]{24}$/, 'Invalid product id'),
+});
+
+const patchProductSubscriptionSchema = z
+  .object({
+    subscriptionEligible: z.boolean(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.subscriptionEligible === false) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'NOT_SUPPORTED',
+        path: ['subscriptionEligible'],
+      });
+      return;
+    }
+    if (data.subscriptionEligible !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'subscriptionEligible must be true',
+        path: ['subscriptionEligible'],
+      });
+    }
+  });
+
+router.patch(
+  '/products/:id/subscription',
+  zValidator('param', adminProductIdParamSchema),
+  zValidator('json', patchProductSubscriptionSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const result = await subscriptionService.markProductSubscriptionEligible(id);
+    return c.json(result);
+  },
+);
 
 export { router as adminRouter };

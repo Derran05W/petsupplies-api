@@ -1,14 +1,44 @@
 import Stripe from 'stripe';
 import { prisma } from '../lib/prisma.js';
+import { stripe } from '../lib/stripe.js';
 import { env } from '../types/env.js';
 import * as discountService from './discountService.js';
-import { sendOrderConfirmation } from './emailService.js';
+import { sendOrderConfirmation, sendSubscriptionPaymentIssue } from './emailService.js';
+import * as subscriptionService from './subscriptionService.js';
 
 function paymentIntentString(pi: Stripe.Checkout.Session['payment_intent']): string | null {
   return typeof pi === 'string' ? pi : null;
 }
 
+async function handleSubscriptionCheckoutCompleted(
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  const subRef = session.subscription;
+  const stripeSubId = typeof subRef === 'string' ? subRef : subRef?.id;
+  if (!stripeSubId) {
+    console.warn(
+      '[webhook] subscription checkout missing subscription id',
+      JSON.stringify({
+        op: 'handleSubscriptionCheckoutCompleted',
+        stripeEventType: 'checkout.session.completed',
+      }),
+    );
+    return;
+  }
+
+  const stripeSub = await stripe.subscriptions.retrieve(stripeSubId, {
+    expand: ['items.data.price'],
+  });
+
+  await subscriptionService.syncSubscriptionFromStripe(stripeSub);
+}
+
 export async function handleSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  if (session.mode === 'subscription') {
+    await handleSubscriptionCheckoutCompleted(session);
+    return;
+  }
+
   const order = await prisma.order.findUnique({
     where: { stripeSessionId: session.id },
     include: {
@@ -246,4 +276,125 @@ export async function handlePaymentIntentFailed(intent: Stripe.PaymentIntent): P
   console.log('[webhook] payment_intent.payment_failed: order cancelled', {
     orderId: order.id,
   });
+}
+
+export async function handleSubscriptionCreated(sub: Stripe.Subscription): Promise<void> {
+  await subscriptionService.syncSubscriptionFromStripe(sub);
+}
+
+export async function handleSubscriptionUpdated(sub: Stripe.Subscription): Promise<void> {
+  await subscriptionService.syncSubscriptionFromStripe(sub);
+}
+
+export async function handleSubscriptionDeleted(sub: Stripe.Subscription): Promise<void> {
+  const updated = await prisma.subscription.updateMany({
+    where: { stripeSubscriptionId: sub.id },
+    data: {
+      status: 'CANCELLED',
+      cancelledAt: sub.canceled_at ? new Date(sub.canceled_at * 1000) : new Date(),
+      pausedAt: null,
+    },
+  });
+
+  if (updated.count === 0) {
+    console.warn(
+      '[webhook] subscription.deleted: local row missing',
+      JSON.stringify({
+        op: 'handleSubscriptionDeleted',
+        stripeEventType: 'customer.subscription.deleted',
+      }),
+    );
+    return;
+  }
+
+  const row = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: sub.id },
+    select: { id: true, userId: true, productId: true },
+  });
+  if (row) {
+    console.info(
+      JSON.stringify({
+        subscriptionId: row.id,
+        userId: row.userId,
+        productId: row.productId,
+        op: 'handleSubscriptionDeleted',
+        stripeEventType: 'customer.subscription.deleted',
+      }),
+    );
+  }
+}
+
+export async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
+  const raw = (invoice as { subscription?: string | Stripe.Subscription | null }).subscription;
+  if (!raw) {
+    return;
+  }
+  await subscriptionService.applyInvoiceToOrder(invoice);
+}
+
+export async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+  const invoiceSubscription = (invoice as { subscription?: string | Stripe.Subscription | null })
+    .subscription;
+  const stripeSubId =
+    typeof invoiceSubscription === 'string' ? invoiceSubscription : invoiceSubscription?.id;
+
+  if (!stripeSubId || !invoice.id) {
+    console.warn(
+      '[webhook] invoice.payment_failed skipped',
+      JSON.stringify({
+        op: 'handleInvoicePaymentFailed',
+        stripeEventType: 'invoice.payment_failed',
+      }),
+    );
+    return;
+  }
+
+  const localSub = await prisma.subscription.findUnique({
+    where: { stripeSubscriptionId: stripeSubId },
+    include: { user: { select: { email: true, name: true } } },
+  });
+
+  if (!localSub) {
+    console.warn(
+      '[webhook] invoice.payment_failed: subscription missing',
+      JSON.stringify({
+        op: 'handleInvoicePaymentFailed',
+        stripeEventType: 'invoice.payment_failed',
+      }),
+    );
+    return;
+  }
+
+  console.warn(
+    '[subscription_invoice_payment_failed]',
+    JSON.stringify({
+      subscriptionId: localSub.id,
+      userId: localSub.userId,
+      productId: localSub.productId,
+      op: 'handleInvoicePaymentFailed',
+      stripeEventType: 'invoice.payment_failed',
+    }),
+  );
+
+  try {
+    const result = await sendSubscriptionPaymentIssue({
+      subscriptionId: localSub.id,
+      to: localSub.user.email,
+      customerName: localSub.user.name,
+      invoiceId: invoice.id,
+    });
+    if (!result.ok) {
+      console.warn('[email] subscription payment issue failed', {
+        subscriptionId: localSub.id,
+        providerMessageId: result.messageId,
+        error: result.error,
+      });
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'unknown error';
+    console.warn('[email] subscription payment issue failed', {
+      subscriptionId: localSub.id,
+      error: message,
+    });
+  }
 }

@@ -7,11 +7,12 @@ datasource db {
 }
 
 model User {
-  id        String   @id
-  email     String   @unique
-  name      String?
-  role      UserRole @default(CUSTOMER)
-  createdAt DateTime @default(now())
+  id                String   @id
+  email             String   @unique
+  name              String?
+  role              UserRole @default(CUSTOMER)
+  stripeCustomerId  String?  @unique
+  createdAt         DateTime @default(now())
 
   orders          Order[]
   cart            Cart?
@@ -20,6 +21,7 @@ model User {
   reviews         Review[]
   wishlistItems   WishlistItem[]
   pets            Pet[]
+  subscriptions   Subscription[]
 }
 
 model Product {
@@ -43,6 +45,10 @@ model Product {
   images        ProductImage[]
   reviews       Review[]
   wishlistItems WishlistItem[]
+
+  subscriptionEligible Boolean                  @default(false)
+  subscriptionPrices   ProductSubscriptionPrice[]
+  subscriptions        Subscription[]
 
   @@index([category, active])
 }
@@ -73,7 +79,51 @@ model Pet {
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
+  subscriptions Subscription[]
+
   @@index([userId, createdAt])
+}
+
+model ProductSubscriptionPrice {
+  id            String               @id @default(cuid())
+  productId     String
+  product       Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  interval      SubscriptionInterval
+  stripePriceId String               @unique
+  active        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([productId, interval])
+  @@index([productId, active])
+}
+
+model Subscription {
+  id                     String               @id @default(cuid())
+  userId                 String
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId              String
+  product                Product              @relation(fields: [productId], references: [id])
+  petId                  String?
+  pet                    Pet?                 @relation(fields: [petId], references: [id], onDelete: SetNull)
+  quantity               Int
+  interval               SubscriptionInterval
+  status                 SubscriptionStatus   @default(ACTIVE)
+  discountPercent        Int                  @default(5)
+  nextDeliveryAt         DateTime
+  stripeSubscriptionId   String               @unique
+  stripePriceId          String
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  pausedAt               DateTime?
+  cancelledAt            DateTime?
+
+  orders Order[]
+
+  @@index([userId, createdAt])
+  @@index([productId])
+  @@index([petId])
+  @@index([status, nextDeliveryAt])
 }
 
 model Review {
@@ -165,10 +215,14 @@ model Order {
   updatedAt           DateTime     @updatedAt
   items               OrderItem[]
   discountUsage       DiscountUsage?
+  subscriptionId        String?
+  subscription          Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  subscriptionInvoiceId String?       @unique
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([discountId])
+  @@index([subscriptionId])
 }
 
 model Discount {
@@ -279,4 +333,17 @@ enum PetSpecies {
   GUINEA_PIG
   REPTILE
   OTHER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum SubscriptionInterval {
+  WEEK_2
+  WEEK_4
+  WEEK_8
+  WEEK_12
 }

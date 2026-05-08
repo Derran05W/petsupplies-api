@@ -33,6 +33,8 @@ Stable keys per lifecycle (not secrets):
 | Back in stock             | `back-in-stock-alert/{productId}`                |
 | Abandoned cart reminder   | `abandoned-cart-reminder/{cartId}`              |
 | Password reset            | `password-reset/{userId}`                        |
+| Upcoming delivery reminder | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` |
+| Subscription payment issue | `subscription-payment-issue/{subscriptionId}/{invoiceId}` |
 
 Order confirmation is sent only after a successful **`PENDING` → `PAID`** database transition, so Stripe webhook retries do not re-send; the idempotency key is an extra guard.
 
@@ -58,3 +60,4 @@ Symptoms map loosely to Resend responses; check the dashboard and response body.
 - **Abandoned cart reminder** — scheduled/lifecycle in a later phase.
 - **Back in stock alert** — restock/alert flows in a later phase.
 - **Password reset** — `sendPasswordReset` is a **stub** (returns `{ ok: true, skipped: true }`); Supabase Auth owns default reset mail unless you replace that flow later. `renderPasswordReset` remains for future use / template tests.
+- **Subscribe & Save** — `sendUpcomingDeliveryReminder` / `sendSubscriptionPaymentIssue` are implemented in Phase 16; **`sendUpcomingDeliveryRemindersDue`** exists as a callable batch helper but **Phase 17 owns scheduling** (cron). See [`docs/subscriptions.md`](./subscriptions.md).

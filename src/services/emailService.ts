@@ -7,12 +7,16 @@ import {
   renderDeliveryConfirmation,
   renderOrderConfirmation,
   renderShippingNotification,
+  renderSubscriptionPaymentIssue,
+  renderSubscriptionUpcomingDelivery,
   type AbandonedCartReminderEmailPayload,
   type BackInStockAlertEmailPayload,
   type DeliveryConfirmationEmailPayload,
   type OrderConfirmationEmailPayload,
   type PasswordResetEmailPayload,
   type ShippingNotificationEmailPayload,
+  type SubscriptionPaymentIssueEmailPayload,
+  type SubscriptionUpcomingDeliveryEmailPayload,
 } from './emailTemplates.js';
 
 export type {
@@ -23,6 +27,8 @@ export type {
   BackInStockAlertEmailPayload,
   AbandonedCartReminderEmailPayload,
   PasswordResetEmailPayload,
+  SubscriptionPaymentIssueEmailPayload,
+  SubscriptionUpcomingDeliveryEmailPayload,
 } from './emailTemplates.js';
 
 export type EmailTemplateName =
@@ -31,7 +37,9 @@ export type EmailTemplateName =
   | 'delivery-confirmation'
   | 'back-in-stock-alert'
   | 'abandoned-cart-reminder'
-  | 'password-reset';
+  | 'password-reset'
+  | 'subscription-upcoming-delivery'
+  | 'subscription-payment-issue';
 
 export interface EmailSendResult {
   ok: boolean;
@@ -169,4 +177,31 @@ export async function sendPasswordReset(
     correlationId: payload.userId,
   });
   return { ok: true, skipped: true };
+}
+
+export async function sendUpcomingDeliveryReminder(
+  payload: SubscriptionUpcomingDeliveryEmailPayload,
+): Promise<EmailSendResult> {
+  const rendered = renderSubscriptionUpcomingDelivery(payload);
+  const deliveryKey = payload.nextDeliveryAt.toISOString().slice(0, 10);
+  return sendTransactionalEmail({
+    template: 'subscription-upcoming-delivery',
+    correlationId: payload.subscriptionId,
+    to: payload.to,
+    idempotencyKey: `upcoming-delivery/${payload.subscriptionId}/${deliveryKey}`,
+    rendered,
+  });
+}
+
+export async function sendSubscriptionPaymentIssue(
+  payload: SubscriptionPaymentIssueEmailPayload,
+): Promise<EmailSendResult> {
+  const rendered = renderSubscriptionPaymentIssue(payload);
+  return sendTransactionalEmail({
+    template: 'subscription-payment-issue',
+    correlationId: payload.subscriptionId,
+    to: payload.to,
+    idempotencyKey: `subscription-payment-issue/${payload.subscriptionId}/${payload.invoiceId}`,
+    rendered,
+  });
 }

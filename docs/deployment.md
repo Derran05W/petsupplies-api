@@ -123,6 +123,11 @@ Stripe webhooks must be registered in the Stripe dashboard for each environment,
    - `checkout.session.completed`
    - `checkout.session.expired`
    - `payment_intent.payment_failed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.paid`
+   - `invoice.payment_failed`
 4. Save. Copy the **Signing secret** (starts with `whsec_`).
 5. Set `STRIPE_WEBHOOK_SECRET` to that value in the matching Railway service.
 6. Redeploy the Railway service so the new env var takes effect.
@@ -143,6 +148,20 @@ After each deploy that includes Phase 12 migrations:
 6. Replay a signed `checkout.session.completed` in Stripe CLI or the dashboard "Resend"; confirm no duplicate `DiscountUsage` row and `Discount.usedCount` does not double-increment.
 
 See [`docs/discounts.md`](./discounts.md) for validation rules, orphan-coupon cleanup, and redemption semantics.
+
+---
+
+## Phase 16 — Subscribe & Save (staging smoke)
+
+1. Confirm **Billing / Subscriptions** is usable for the Stripe account (test mode for staging).
+2. Dashboard → **Billing** → **Subscriptions** / **Customer emails**: configure **dunning** / Smart Retries (defaults are fine); payment-failure customer emails may remain Stripe-hosted for MVP.
+3. Ensure the webhook endpoint lists **all** events in [Register Stripe webhook endpoint](#register-stripe-webhook-endpoint-per-env), including subscription and invoice events.
+4. As **admin**, `PATCH /admin/products/:id/subscription` with `{ subscriptionEligible: true }`; verify **four** recurring Prices exist in Stripe for that product and matching `ProductSubscriptionPrice` rows locally.
+5. Complete a **subscription Checkout** as a test customer; confirm `checkout.session.completed` / `customer.subscription.*` webhooks create/update **`Subscription`** rows.
+6. After a paid renewal (or test **`invoice.paid`** replay), confirm **one** `Order` per invoice id, stock decrement, and **no duplicate** order when the same `invoice.paid` is replayed.
+7. Shared coupon **`subscribe-save-5pct`** is created idempotently by app code on first Subscribe & Save Checkout — optional Dashboard verification under **Coupons**.
+
+Operational detail: [`docs/subscriptions.md`](./subscriptions.md).
 
 ---
 

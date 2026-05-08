@@ -14,6 +14,7 @@ import { usersRouter } from './routes/users.js';
 import { addressesRouter } from './routes/addresses.js';
 import { wishlistRouter } from './routes/wishlist.js';
 import { petsRouter } from './routes/pets.js';
+import { meSubscriptionsRouter, subscriptionCheckoutRouter } from './routes/subscriptions.js';
 import type { Variables } from './types/hono.js';
 
 export function createApp() {
@@ -32,6 +33,7 @@ export function createApp() {
   app.route('/products', productsRouter);
   app.route('/cart', cartRouter);
   app.route('/checkout', checkoutRouter);
+  app.route('/subscriptions', subscriptionCheckoutRouter);
   app.route('/orders', ordersRouter);
   app.route('/reviews', reviewsRouter);
   app.route('/admin', adminRouter);
@@ -39,6 +41,7 @@ export function createApp() {
   app.route('/users/me/addresses', addressesRouter);
   app.route('/users/me/wishlist', wishlistRouter);
   app.route('/users/me/pets', petsRouter);
+  app.route('/users/me/subscriptions', meSubscriptionsRouter);
 
   return app;
 }

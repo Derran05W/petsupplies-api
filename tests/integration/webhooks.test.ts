@@ -8,6 +8,11 @@ vi.mock('../../src/services/webhookService.js', () => ({
   handleSessionCompleted: vi.fn(),
   handleSessionExpired: vi.fn(),
   handlePaymentIntentFailed: vi.fn(),
+  handleSubscriptionCreated: vi.fn(),
+  handleSubscriptionUpdated: vi.fn(),
+  handleSubscriptionDeleted: vi.fn(),
+  handleInvoicePaid: vi.fn(),
+  handleInvoicePaymentFailed: vi.fn(),
 }));
 
 import { createApp } from '../../src/app.js';
@@ -74,6 +79,8 @@ describe('POST /webhooks/stripe', () => {
     expect(webhookService.handleSessionCompleted).not.toHaveBeenCalled();
     expect(webhookService.handleSessionExpired).not.toHaveBeenCalled();
     expect(webhookService.handlePaymentIntentFailed).not.toHaveBeenCalled();
+    expect(webhookService.handleSubscriptionCreated).not.toHaveBeenCalled();
+    expect(webhookService.handleInvoicePaid).not.toHaveBeenCalled();
   });
 
   it('dispatches checkout.session.completed and responds 200', async () => {
@@ -130,5 +137,56 @@ describe('POST /webhooks/stripe', () => {
       id: 'pi_failed_1',
       metadata: { orderId: 'order-1' },
     });
+  });
+
+  it('dispatches customer.subscription.created and responds 200', async () => {
+    const sub = { id: 'sub_1', object: 'subscription' };
+    const body = eventBody('customer.subscription.created', sub);
+    const app = createApp();
+    const res = await app.request('/webhooks/stripe', {
+      method: 'POST',
+      headers: { 'stripe-signature': sign(body) },
+      body,
+    });
+    expect(res.status).toBe(200);
+    expect(webhookService.handleSubscriptionCreated).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches invoice.paid and responds 200', async () => {
+    const inv = { id: 'in_1', object: 'invoice', subscription: 'sub_1' };
+    const body = eventBody('invoice.paid', inv);
+    const app = createApp();
+    const res = await app.request('/webhooks/stripe', {
+      method: 'POST',
+      headers: { 'stripe-signature': sign(body) },
+      body,
+    });
+    expect(res.status).toBe(200);
+    expect(webhookService.handleInvoicePaid).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches invoice.payment_failed and responds 200', async () => {
+    const inv = { id: 'in_2', object: 'invoice', subscription: 'sub_1' };
+    const body = eventBody('invoice.payment_failed', inv);
+    const app = createApp();
+    const res = await app.request('/webhooks/stripe', {
+      method: 'POST',
+      headers: { 'stripe-signature': sign(body) },
+      body,
+    });
+    expect(res.status).toBe(200);
+    expect(webhookService.handleInvoicePaymentFailed).toHaveBeenCalledOnce();
+  });
+
+  it('keeps signature verification real for subscription event types', async () => {
+    const body = eventBody('customer.subscription.updated', { id: 'sub_u' });
+    const app = createApp();
+    const res = await app.request('/webhooks/stripe', {
+      method: 'POST',
+      headers: { 'stripe-signature': 'bad' },
+      body,
+    });
+    expect(res.status).toBe(400);
+    expect(webhookService.handleSubscriptionUpdated).not.toHaveBeenCalled();
   });
 });
