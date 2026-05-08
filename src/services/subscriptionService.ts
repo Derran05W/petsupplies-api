@@ -1027,17 +1027,43 @@ export async function applyInvoiceToOrder(
   };
 }
 
+export interface SendUpcomingDeliveryRemindersDueOpts {
+  now?: Date;
+  windowStartAt?: Date;
+  windowEndAt?: Date;
+}
+
 export async function sendUpcomingDeliveryRemindersDue(
-  now = new Date(),
-): Promise<{ scanned: number; sent: number; failed: number }> {
-  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  arg?: Date | SendUpcomingDeliveryRemindersDueOpts,
+): Promise<{ scanned: number; sent: number; failed: number; skipped: number }> {
+  let rangeStart: Date;
+  let rangeEnd: Date;
+  let endExclusive: boolean;
+
+  if (arg === undefined || arg instanceof Date) {
+    const anchor = arg ?? new Date();
+    rangeStart = anchor;
+    rangeEnd = new Date(anchor.getTime() + 24 * 60 * 60 * 1000);
+    endExclusive = false;
+  } else {
+    const { now = new Date(), windowStartAt, windowEndAt } = arg;
+    if (windowStartAt !== undefined && windowEndAt !== undefined) {
+      rangeStart = windowStartAt;
+      rangeEnd = windowEndAt;
+      endExclusive = true;
+    } else {
+      rangeStart = now;
+      rangeEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      endExclusive = false;
+    }
+  }
+
   const subs = await prisma.subscription.findMany({
     where: {
       status: 'ACTIVE',
-      nextDeliveryAt: {
-        gte: now,
-        lte: end,
-      },
+      nextDeliveryAt: endExclusive
+        ? { gte: rangeStart, lt: rangeEnd }
+        : { gte: rangeStart, lte: rangeEnd },
     },
     include: {
       product: { select: { id: true, name: true, slug: true } },
@@ -1050,23 +1076,46 @@ export async function sendUpcomingDeliveryRemindersDue(
   let failed = 0;
 
   for (const sub of subs) {
-    const deliveryDate = sub.nextDeliveryAt.toISOString().slice(0, 10);
-    const result = await sendUpcomingDeliveryReminder({
-      subscriptionId: sub.id,
-      to: sub.user.email,
-      customerName: sub.user.name,
-      nextDeliveryAt: sub.nextDeliveryAt,
-      productName: sub.product.name,
-      productUrl: `${env.FRONTEND_URL}/products/${sub.product.slug}`,
-      petName: sub.pet?.name ?? null,
-      deliveryDateLabel: deliveryDate,
-    });
-    if (result.ok) {
-      sent += 1;
-    } else {
+    try {
+      const deliveryDate = sub.nextDeliveryAt.toISOString().slice(0, 10);
+      const result = await sendUpcomingDeliveryReminder({
+        subscriptionId: sub.id,
+        to: sub.user.email,
+        customerName: sub.user.name,
+        nextDeliveryAt: sub.nextDeliveryAt,
+        productName: sub.product.name,
+        productUrl: `${env.FRONTEND_URL}/products/${sub.product.slug}`,
+        petName: sub.pet?.name ?? null,
+        deliveryDateLabel: deliveryDate,
+      });
+      if (result.ok) {
+        sent += 1;
+      } else {
+        failed += 1;
+        console.warn(
+          JSON.stringify({
+            op: 'sendUpcomingDeliveryRemindersDue',
+            evt: 'upcoming_delivery_send_failed',
+            subscriptionId: sub.id,
+            userId: sub.userId,
+            code: result.error ?? 'SEND_FAILED',
+          }),
+        );
+      }
+    } catch (err) {
       failed += 1;
+      const code = err instanceof Error ? err.name : 'EXCEPTION';
+      console.warn(
+        JSON.stringify({
+          op: 'sendUpcomingDeliveryRemindersDue',
+          evt: 'upcoming_delivery_send_failed',
+          subscriptionId: sub.id,
+          userId: sub.userId,
+          code,
+        }),
+      );
     }
   }
 
-  return { scanned: subs.length, sent, failed };
+  return { scanned: subs.length, sent, failed, skipped: 0 };
 }

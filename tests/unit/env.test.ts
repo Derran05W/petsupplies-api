@@ -9,6 +9,7 @@ const VALID: NodeJS.ProcessEnv = {
   STRIPE_SECRET_KEY: 'sk_test_key',
   STRIPE_WEBHOOK_SECRET: 'whsec_key',
   FRONTEND_URL: 'http://localhost:3000',
+  CRON_BEARER_TOKEN: 'c'.repeat(32),
 };
 
 describe('validateEnv', () => {
@@ -68,7 +69,7 @@ describe('validateEnv', () => {
     ).not.toThrow();
   });
 
-  it('requires RESEND_API_KEY and EMAIL_FROM in production', () => {
+  it('requires RESEND_API_KEY, EMAIL_FROM, and CRON_BEARER_TOKEN in production', () => {
     expect(() =>
       validateEnv({
         ...VALID,
@@ -85,6 +86,20 @@ describe('validateEnv', () => {
       } as NodeJS.ProcessEnv),
     ).toThrow(/EMAIL_FROM/);
 
+    const {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      CRON_BEARER_TOKEN: _cron,
+      ...noCron
+    } = VALID;
+    expect(() =>
+      validateEnv({
+        ...noCron,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: 're_xxx',
+        EMAIL_FROM: 'Pet <o@x.com>',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/CRON_BEARER_TOKEN/);
+
     expect(
       validateEnv({
         ...VALID,
@@ -93,6 +108,18 @@ describe('validateEnv', () => {
         EMAIL_FROM: 'Pet <o@x.com>',
       } as NodeJS.ProcessEnv),
     ).toMatchObject({ NODE_ENV: 'production' });
+  });
+
+  it('throws in production when CRON_BEARER_TOKEN is blank', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        NODE_ENV: 'production',
+        RESEND_API_KEY: 're_xxx',
+        EMAIL_FROM: 'Pet <o@x.com>',
+        CRON_BEARER_TOKEN: ' '.repeat(32),
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/CRON_BEARER_TOKEN/);
   });
 
   it('throws in production when RESEND_API_KEY is blank', () => {

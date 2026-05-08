@@ -15,6 +15,7 @@ const envSchema = z
     FLAT_SHIPPING_CENTS: z.coerce.number().int().nonnegative().default(599),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
+    CRON_BEARER_TOKEN: z.string().min(32),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {
@@ -30,6 +31,13 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           message: 'EMAIL_FROM is required in production',
           path: ['EMAIL_FROM'],
+        });
+      }
+      if (!data.CRON_BEARER_TOKEN.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'CRON_BEARER_TOKEN cannot be empty in production',
+          path: ['CRON_BEARER_TOKEN'],
         });
       }
     }

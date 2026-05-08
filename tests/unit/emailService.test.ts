@@ -95,7 +95,8 @@ describe('emailService', () => {
     );
   });
 
-  it('sendAbandonedCartReminder uses cart idempotency key', async () => {
+  it('sendAbandonedCartReminder uses day-scoped abandoned-cart idempotency key', async () => {
+    const runAt = new Date('2026-05-08T15:30:00.000Z');
     await sendAbandonedCartReminder({
       cartId: 'cart-1',
       userId: 'u1',
@@ -103,9 +104,10 @@ describe('emailService', () => {
       items: [],
       cartUrl: 'http://localhost:3000/cart',
       subtotalCents: 0,
+      idempotencyRunAt: runAt,
     });
     expect(vi.mocked(sendEmail).mock.calls[0]![0].idempotencyKey).toBe(
-      'abandoned-cart-reminder/cart-1',
+      'abandoned-cart/u1/cart-1/2026-05-08',
     );
   });
 

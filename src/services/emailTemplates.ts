@@ -59,6 +59,8 @@ export interface AbandonedCartReminderEmailPayload {
   items: EmailLineItem[];
   cartUrl: string;
   subtotalCents: number;
+  /** When set (e.g. cron), idempotency key uses this instant's UTC calendar day */
+  idempotencyRunAt?: Date;
 }
 
 export interface PasswordResetEmailPayload {
