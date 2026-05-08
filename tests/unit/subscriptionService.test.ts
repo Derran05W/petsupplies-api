@@ -551,6 +551,6 @@ describe('subscriptionService.sendUpcomingDeliveryRemindersDue', () => {
   it('returns scanned counts', async () => {
     vi.mocked(prisma.subscription.findMany).mockResolvedValue([]);
     const r = await subscriptionService.sendUpcomingDeliveryRemindersDue();
-    expect(r).toEqual({ scanned: 0, sent: 0, failed: 0 });
+    expect(r).toEqual({ scanned: 0, sent: 0, failed: 0, skipped: 0 });
   });
 });

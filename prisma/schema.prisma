@@ -158,16 +158,18 @@ model ProductImage {
 }
 
 model Cart {
-  id         String     @id @default(cuid())
-  userId     String     @unique
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  discountId String?
-  discount   Discount?  @relation(fields: [discountId], references: [id], onDelete: SetNull)
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  items      CartItem[]
+  id                   String     @id @default(cuid())
+  userId               String     @unique
+  user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  discountId           String?
+  discount             Discount?  @relation(fields: [discountId], references: [id], onDelete: SetNull)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  lastAbandonedEmailAt DateTime?
+  items                CartItem[]
 
   @@index([discountId])
+  @@index([updatedAt, lastAbandonedEmailAt])
 }
 
 model CartItem {

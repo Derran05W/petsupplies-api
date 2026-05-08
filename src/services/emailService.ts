@@ -160,11 +160,13 @@ export async function sendAbandonedCartReminder(
   payload: AbandonedCartReminderEmailPayload,
 ): Promise<EmailSendResult> {
   const rendered = renderAbandonedCartReminder(payload);
+  const runAt = payload.idempotencyRunAt ?? new Date();
+  const ymd = runAt.toISOString().slice(0, 10);
   return sendTransactionalEmail({
     template: 'abandoned-cart-reminder',
     correlationId: payload.cartId,
     to: payload.to,
-    idempotencyKey: `abandoned-cart-reminder/${payload.cartId}`,
+    idempotencyKey: `abandoned-cart/${payload.userId}/${payload.cartId}/${ymd}`,
     rendered,
   });
 }

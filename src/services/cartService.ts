@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { HTTPException } from 'hono/http-exception';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../types/env.js';
@@ -289,5 +290,51 @@ export async function clear(userId: string) {
   await prisma.cart.update({
     where: { id: cart.id },
     data: { discountId: null },
+  });
+}
+
+const abandonedCartCandidateInclude = {
+  items: { include: { product: true } },
+  user: true,
+} as const;
+
+export type AbandonedCartCandidate = Prisma.CartGetPayload<{
+  include: typeof abandonedCartCandidateInclude;
+}>;
+
+/**
+ * Carts eligible for an abandoned-cart reminder. "Verified email" here means
+ * `User.email` is present and `User.role === CUSTOMER`; the Supabase
+ * `sync_auth_user` trigger only creates `User` rows for confirmed accounts, so
+ * we treat this as post-confirmation email (see docs/cron.md).
+ *
+ * Query shape: `updatedAt` older than 24h, reminder throttle 7d on
+ * `lastAbandonedEmailAt`, non-empty cart, customer users only. Postgres should
+ * use `Cart_updatedAt_lastAbandonedEmailAt_idx` for the time predicates.
+ */
+export async function findAbandonedCartCandidates({
+  now,
+  batchSize,
+  cursor,
+}: {
+  now: Date;
+  batchSize: number;
+  cursor?: string;
+}): Promise<AbandonedCartCandidate[]> {
+  const staleBefore = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const remindedBefore = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  return prisma.cart.findMany({
+    where: {
+      updatedAt: { lt: staleBefore },
+      OR: [{ lastAbandonedEmailAt: null }, { lastAbandonedEmailAt: { lt: remindedBefore } }],
+      user: { role: 'CUSTOMER' },
+      items: { some: {} },
+    },
+    orderBy: { id: 'asc' },
+    take: batchSize,
+    skip: cursor ? 1 : 0,
+    cursor: cursor ? { id: cursor } : undefined,
+    include: abandonedCartCandidateInclude,
   });
 }

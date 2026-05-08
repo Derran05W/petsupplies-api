@@ -13,6 +13,8 @@ process.env.SUPABASE_SERVICE_ROLE_KEY =
 process.env.STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_key';
 process.env.STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || 'whsec_test';
 process.env.FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+process.env.CRON_BEARER_TOKEN =
+  process.env.CRON_BEARER_TOKEN || 'test-cron-bearer-token-min-32-chars-xxxx';
 process.env.RESEND_API_KEY ??= 'test-resend-key';
 process.env.EMAIL_FROM ??= 'Pet Supplies <test@example.com>';
 // Always run in test mode regardless of what .env specifies

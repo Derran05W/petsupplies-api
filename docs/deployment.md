@@ -68,6 +68,7 @@ All values are environment-specific. Set every variable below in each Railway se
 - `NODE_ENV` — `production` for both Railway services.
 - `PORT` — Railway sets this automatically; do not hardcode.
 - `FRONTEND_URL` — used for CORS and Stripe success/cancel URLs. Distinct per env.
+- `CRON_BEARER_TOKEN` — long shared secret (**≥32 chars** recommended: 64 hex chars from 32 random bytes). Authenticates **`POST /jobs/run/:name`**. Same value must be configured on **both** the API service **and** the Railway Cron runner that calls those URLs.
 
 ### Resend / transactional email
 
@@ -162,6 +163,34 @@ See [`docs/discounts.md`](./discounts.md) for validation rules, orphan-coupon cl
 7. Shared coupon **`subscribe-save-5pct`** is created idempotently by app code on first Subscribe & Save Checkout — optional Dashboard verification under **Coupons**.
 
 Operational detail: [`docs/subscriptions.md`](./subscriptions.md).
+
+---
+
+## Phase 17 — Cron service setup
+
+1. Set **`CRON_BEARER_TOKEN`** identically on the **API Railway service** and on a dedicated **cron / worker** Railway service used only for outbound `curl`.
+2. On the cron service configure one **hourly** command (timezone UTC unless localized):
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/abandoned-cart"
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/upcoming-delivery"
+```
+
+`API_URL` is the HTTPS origin you already use (`https://*.up.railway.app`), without a trailing slash.
+
+3. GitHub Actions **schedule** fallback mirrors the hourly pattern if Railway Cron cannot run on-plan — reuse the YAML in [`cron.md`](./cron.md).
+
+4. **Verification (staging)** — bearer-only smoke:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
+  "$API_URL/jobs/run/abandoned-cart" | jq .
+
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
+  "$API_URL/jobs/run/upcoming-delivery" | jq .
+```
+
+Expect HTTP `200` and `JobResult` JSON (`scanned`, `sent`, `failed`, `skipped`, `durationMs`). Inspect logs remain id-only (`userId`, `cartId`, `subscriptionId`, no tokens / bodies).
 
 ---
 
