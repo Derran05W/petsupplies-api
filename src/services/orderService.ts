@@ -3,6 +3,7 @@ import type { OrderStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../types/env.js';
 import { sendShippingNotification } from './emailService.js';
+import { dispatchBackInStockNotifications } from './stockAlertService.js';
 
 // ── Input / output types ──────────────────────────────────────────────────────
 
@@ -296,6 +297,8 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
 
   // PAID → CANCELLED: restore stock atomically, log incident
   if (current === 'PAID' && targetStatus === 'CANCELLED') {
+    const restockNotifyProductIds: string[] = [];
+
     await prisma.$transaction(async (tx) => {
       // Lock the order row to prevent concurrent mutations
       await tx.$queryRaw`
@@ -305,10 +308,19 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
       `;
 
       for (const item of order.items) {
+        const beforeRow = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { stock: true },
+        });
+        const prevStock = beforeRow?.stock ?? 0;
         await tx.product.update({
           where: { id: item.productId },
           data: { stock: { increment: item.quantity } },
         });
+        const nextStock = prevStock + item.quantity;
+        if (prevStock === 0 && nextStock > 0) {
+          restockNotifyProductIds.push(item.productId);
+        }
       }
 
       await tx.order.update({
@@ -316,6 +328,10 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
         data: { status: 'CANCELLED' },
       });
     });
+
+    for (const pid of [...new Set(restockNotifyProductIds)]) {
+      void dispatchBackInStockNotifications(pid);
+    }
 
     console.error(
       '[admin_cancel_paid_incident]',

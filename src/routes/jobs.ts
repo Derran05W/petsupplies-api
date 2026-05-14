@@ -4,6 +4,7 @@ import {
   type JobName,
   type JobResult,
   runAbandonedCartJob,
+  runBackInStockNotificationJob,
   runUpcomingDeliveryJob,
 } from '../services/jobRunner.js';
 import type { Variables } from '../types/hono.js';
@@ -11,6 +12,7 @@ import type { Variables } from '../types/hono.js';
 const RUNNERS: Record<JobName, (now?: Date) => Promise<JobResult>> = {
   'abandoned-cart': runAbandonedCartJob,
   'upcoming-delivery': runUpcomingDeliveryJob,
+  'back-in-stock': runBackInStockNotificationJob,
 };
 
 export const jobsRouter = new Hono<{ Variables: Variables }>();

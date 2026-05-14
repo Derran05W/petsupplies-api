@@ -198,6 +198,7 @@ Operational detail: [`docs/subscriptions.md`](./subscriptions.md).
 ```bash
 curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/abandoned-cart"
 curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/upcoming-delivery"
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/back-in-stock"
 ```
 
 `API_URL` is the HTTPS origin you already use (`https://*.up.railway.app`), without a trailing slash.
@@ -212,6 +213,9 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
 
 curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
   "$API_URL/jobs/run/upcoming-delivery" | jq .
+
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
+  "$API_URL/jobs/run/back-in-stock" | jq .
 ```
 
 Expect HTTP `200` and `JobResult` JSON (`scanned`, `sent`, `failed`, `skipped`, `durationMs`). Inspect logs remain id-only (`userId`, `cartId`, `subscriptionId`, no tokens / bodies).

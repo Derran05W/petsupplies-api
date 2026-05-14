@@ -4,6 +4,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     cart: { updateMany: vi.fn() },
     subscription: { findMany: vi.fn() },
+    stockAlert: { findMany: vi.fn() },
   },
 }));
 
@@ -16,10 +17,15 @@ vi.mock('../../src/services/emailService.js', () => ({
   sendUpcomingDeliveryReminder: vi.fn(),
 }));
 
+vi.mock('../../src/services/stockAlertService.js', () => ({
+  dispatchBackInStockNotifications: vi.fn(),
+}));
+
 import { prisma } from '../../src/lib/prisma.js';
 import * as cartService from '../../src/services/cartService.js';
 import * as emailService from '../../src/services/emailService.js';
 import * as jobRunner from '../../src/services/jobRunner.js';
+import * as stockAlertService from '../../src/services/stockAlertService.js';
 import * as subscriptionService from '../../src/services/subscriptionService.js';
 
 const USER = {
@@ -363,5 +369,40 @@ describe('subscriptionService.sendUpcomingDeliveryRemindersDue windows', () => {
      * `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` from `nextDeliveryAt` UTC date
      * (see tests/unit/emailService.test.ts).
      */
+  });
+});
+
+describe('runBackInStockNotificationJob', () => {
+  it('dedupes productIds and aggregates dispatch stats', async () => {
+    vi.mocked(prisma.stockAlert.findMany).mockResolvedValue([
+      { productId: 'pa' },
+      { productId: 'pa' },
+      { productId: 'pb' },
+    ] as never);
+    vi.mocked(stockAlertService.dispatchBackInStockNotifications).mockResolvedValue({
+      attempted: 2,
+      sent: 2,
+      failed: 0,
+      skipped: 0,
+    });
+
+    const r = await jobRunner.runBackInStockNotificationJob();
+
+    expect(prisma.stockAlert.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          notifiedAt: null,
+          product: { active: true, stock: { gt: 0 } },
+        }),
+        take: jobRunner.JOB_BATCH_SIZE,
+      }),
+    );
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledTimes(2);
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledWith('pa');
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledWith('pb');
+    expect(r.scanned).toBe(3);
+    expect(r.sent).toBe(4);
+    expect(r.failed).toBe(0);
+    expect(r.skipped).toBe(0);
   });
 });

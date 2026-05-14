@@ -83,15 +83,17 @@ describe('emailService', () => {
     );
   });
 
-  it('sendBackInStockAlert uses product-scoped idempotency key', async () => {
+  it('sendBackInStockAlert uses user, product, and episode idempotency key', async () => {
     await sendBackInStockAlert({
       productId: 'prod-9',
       productName: 'Foo',
       productUrl: 'http://localhost:3000/p/foo',
       to: 'a@b.com',
+      userId: 'user-99',
+      stockAlertEpisode: 3,
     });
     expect(vi.mocked(sendEmail).mock.calls[0]![0].idempotencyKey).toBe(
-      'back-in-stock-alert/prod-9',
+      'back-in-stock-alert/user-99/prod-9/3',
     );
   });
 

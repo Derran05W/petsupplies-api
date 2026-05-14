@@ -4,10 +4,11 @@ import type { AbandonedCartReminderEmailPayload } from './emailTemplates.js';
 import * as cartService from './cartService.js';
 import * as emailService from './emailService.js';
 import * as subscriptionService from './subscriptionService.js';
+import * as stockAlertService from './stockAlertService.js';
 
 export const JOB_BATCH_SIZE = 200;
 
-export type JobName = 'abandoned-cart' | 'upcoming-delivery';
+export type JobName = 'abandoned-cart' | 'upcoming-delivery' | 'back-in-stock';
 
 export interface JobResult {
   scanned: number;
@@ -149,6 +150,42 @@ export async function runUpcomingDeliveryJob(nowInput?: Date): Promise<JobResult
     sent: r.sent,
     failed: r.failed,
     skipped: r.skipped,
+    durationMs: Date.now() - started,
+  };
+}
+
+export async function runBackInStockNotificationJob(nowInput?: Date): Promise<JobResult> {
+  void nowInput;
+  const started = Date.now();
+  let scanned = 0;
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  const rows = await prisma.stockAlert.findMany({
+    where: {
+      notifiedAt: null,
+      product: { active: true, stock: { gt: 0 } },
+    },
+    select: { productId: true },
+    take: JOB_BATCH_SIZE,
+  });
+
+  const uniqueProductIds = [...new Set(rows.map((r) => r.productId))];
+  scanned = rows.length;
+
+  for (const productId of uniqueProductIds) {
+    const r = await stockAlertService.dispatchBackInStockNotifications(productId);
+    sent += r.sent;
+    failed += r.failed;
+    skipped += r.skipped;
+  }
+
+  return {
+    scanned,
+    sent,
+    failed,
+    skipped,
     durationMs: Date.now() - started,
   };
 }

@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     order: { findUnique: vi.fn(), update: vi.fn() },
-    product: {},
+    product: { findMany: vi.fn() },
     subscription: {
       updateMany: vi.fn(),
       findFirst: vi.fn(),
@@ -47,6 +47,10 @@ vi.mock('../../src/services/emailService.js', () => ({
 
 vi.mock('../../src/services/discountService.js', () => ({
   applyToOrder: vi.fn(),
+}));
+
+vi.mock('../../src/services/stockAlertService.js', () => ({
+  onProductBecameOutOfStock: vi.fn().mockResolvedValue(undefined),
 }));
 
 import * as discountService from '../../src/services/discountService.js';
@@ -101,6 +105,14 @@ function makeSession(overrides: Partial<Stripe.Checkout.Session>): Stripe.Checko
 
 beforeEach(() => {
   vi.clearAllMocks();
+  let stockFindManyCall = 0;
+  vi.mocked(prisma.product.findMany).mockImplementation(async () => {
+    stockFindManyCall += 1;
+    if (stockFindManyCall === 1) {
+      return [{ id: 'prod-1', stock: 10 }];
+    }
+    return [{ id: 'prod-1', stock: 8 }];
+  });
 });
 
 describe('webhookService', () => {

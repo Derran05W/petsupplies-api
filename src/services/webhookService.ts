@@ -5,6 +5,7 @@ import { env } from '../types/env.js';
 import * as discountService from './discountService.js';
 import { sendOrderConfirmation, sendSubscriptionPaymentIssue } from './emailService.js';
 import * as subscriptionService from './subscriptionService.js';
+import { onProductBecameOutOfStock } from './stockAlertService.js';
 
 function paymentIntentString(pi: Stripe.Checkout.Session['payment_intent']): string | null {
   return typeof pi === 'string' ? pi : null;
@@ -73,6 +74,13 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
   }
 
   const totalCents = session.amount_total ?? order.totalCents;
+
+  const productIds = [...new Set(order.items.map((i) => i.productId))];
+  const stockBeforeRows = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, stock: true },
+  });
+  const stockBeforeMap = new Map(stockBeforeRows.map((r) => [r.id, r.stock]));
 
   let transitionedToPaid = false;
 
@@ -167,6 +175,18 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
   }
 
   if (transitionedToPaid) {
+    const stockAfterRows = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, stock: true },
+    });
+    for (const row of stockAfterRows) {
+      const before = stockBeforeMap.get(row.id);
+      if (before === undefined) continue;
+      if (before > 0 && row.stock === 0) {
+        void onProductBecameOutOfStock(row.id);
+      }
+    }
+
     try {
       const fresh = await prisma.order.findUnique({
         where: { id: order.id },

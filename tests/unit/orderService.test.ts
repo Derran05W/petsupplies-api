@@ -19,6 +19,15 @@ vi.mock('../../src/services/emailService.js', () => ({
   sendShippingNotification: vi.fn(),
 }));
 
+vi.mock('../../src/services/stockAlertService.js', () => ({
+  dispatchBackInStockNotifications: vi.fn().mockResolvedValue({
+    attempted: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+  }),
+}));
+
 import { prisma } from '../../src/lib/prisma.js';
 import { sendShippingNotification } from '../../src/services/emailService.js';
 import * as orderService from '../../src/services/orderService.js';
@@ -307,8 +316,11 @@ describe('orderService.updateAdminOrderStatus', () => {
 
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const txMock = {
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      product: { update: vi.fn().mockResolvedValue({}) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+      product: {
+        findUnique: vi.fn().mockResolvedValue({ stock: 3 }),
+        update: vi.fn().mockResolvedValue({}),
+      },
       order: { update: vi.fn().mockResolvedValue({}) },
     };
     vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));

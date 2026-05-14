@@ -49,6 +49,9 @@ export interface BackInStockAlertEmailPayload {
   productName: string;
   productUrl: string;
   to: string;
+  userId: string;
+  /** Bumped when the product last became out of stock; scopes Resend idempotency per restock episode. */
+  stockAlertEpisode: number;
 }
 
 export interface AbandonedCartReminderEmailPayload {

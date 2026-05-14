@@ -61,6 +61,8 @@ describe('emailTemplates', () => {
       productName: 'Salmon Treats',
       productUrl: 'https://app.example.com/p/salmon',
       to: 'a@b.com',
+      userId: 'u1',
+      stockAlertEpisode: 2,
     });
     expect(r.subject).toBe('Salmon Treats is back in stock');
     expect(r.html).toContain('Salmon Treats');

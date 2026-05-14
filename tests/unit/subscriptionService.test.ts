@@ -41,6 +41,10 @@ vi.mock('../../src/services/emailService.js', () => ({
   sendUpcomingDeliveryReminder: vi.fn(),
 }));
 
+vi.mock('../../src/services/stockAlertService.js', () => ({
+  onProductBecameOutOfStock: vi.fn().mockResolvedValue(undefined),
+}));
+
 import * as stripeService from '../../src/services/stripeService.js';
 import * as emailService from '../../src/services/emailService.js';
 import { prisma } from '../../src/lib/prisma.js';
@@ -352,6 +356,7 @@ describe('subscriptionService.applyInvoiceToOrder', () => {
         update: vi.fn(),
       },
       product: {
+        findUnique: vi.fn().mockResolvedValue({ stock: 10 }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -380,6 +385,7 @@ describe('subscriptionService.applyInvoiceToOrder', () => {
         update: vi.fn(),
       },
       product: {
+        findUnique: vi.fn().mockResolvedValue({ stock: 1 }),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     };

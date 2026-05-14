@@ -1,11 +1,12 @@
-# Scheduled cron jobs (Phase 17)
+# Scheduled cron jobs (Phase 17 + Phase 18)
 
 ## Overview
 
-Two hourly jobs run **outside** the Node process via an external scheduler (Railway Cron or GitHub Actions). Each job is triggered with an authenticated `POST`:
+Hourly jobs (or your chosen cadence) run **outside** the Node process via an external scheduler (Railway Cron or GitHub Actions). Each job is triggered with an authenticated `POST`:
 
 - **`abandoned-cart`** — finds carts idle for ≥24 hours, reminders throttled to once per cart per 7 days, emails customers with abandoned items.
 - **`upcoming-delivery`** — finds active subscriptions whose **`nextDeliveryAt`** falls in a one-hour window **starting three days from “now”** (UTC), and sends the Subscribe & Save upcoming-delivery reminder.
+- **`back-in-stock`** (Phase 18) — scans pending stock-alert rows (`notifiedAt` null) for products that are **active and in stock**, and sends **`back-in-stock-alert`** emails (same template as inline restock fanout). Inline sends also run when sellable stock crosses **`0 → >0`** (e.g. admin **`PAID → CANCELLED`** restock); the cron path is the **retry** surface for failed Resend deliveries without blocking stock mutations.
 
 Operational behavior, auth, logging, and idempotency are documented below. Transactional templates and Resend usage are summarized in [`email.md`](./email.md).
 
@@ -18,6 +19,7 @@ Railway Cron service  (or GitHub Actions schedule, fallback)
         |  hourly (example)
         |  POST /jobs/run/abandoned-cart
         |  POST /jobs/run/upcoming-delivery
+        |  POST /jobs/run/back-in-stock
         |  Authorization: Bearer ${CRON_BEARER_TOKEN}
         v
 [ Hono API ]  src/routes/jobs.ts + cronAuth (timing-safe Bearer compare)
@@ -28,9 +30,12 @@ src/services/jobRunner.ts
    |      --> emailService.sendAbandonedCartReminder
    |      --> Cart.lastAbandonedEmailAt stamp after successful send
    |
-   `-- runUpcomingDeliveryJob(now)
-          --> subscriptionService.sendUpcomingDeliveryRemindersDue
-                   (UTC window [now+3d, now+3d+1h) )
+   |-- runUpcomingDeliveryJob(now)
+   |      --> subscriptionService.sendUpcomingDeliveryRemindersDue
+   |               (UTC window [now+3d, now+3d+1h) )
+   |
+   `-- runBackInStockNotificationJob(now)
+          --> stockAlertService.dispatchBackInStockNotifications (per productId batch)
         v
 JSON JobResult { scanned, sent, failed, skipped, durationMs }
 ```
@@ -48,6 +53,8 @@ JSON JobResult { scanned, sent, failed, skipped, durationMs }
 curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/abandoned-cart"
 
 curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/upcoming-delivery"
+
+curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" "$API_URL/jobs/run/back-in-stock"
 ```
 
 5. Redeploy after env changes.
@@ -72,6 +79,9 @@ jobs:
           curl -fsS -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_BEARER_TOKEN }}" \
             "${{ secrets.API_URL }}/jobs/run/upcoming-delivery"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_BEARER_TOKEN }}" \
+            "${{ secrets.API_URL }}/jobs/run/back-in-stock"
 ```
 
 Wire `secrets.CRON_BEARER_TOKEN` and `secrets.API_URL` per environment.
@@ -88,7 +98,7 @@ The bearer is **never** logged. Responses are `{ "error": "UNAUTHORIZED" }` with
 
 All job-related logs **must remain id-only**:
 
-- Allowed: **`userId`**, **`cartId`**, **`subscriptionId`**, **`op`**, **`evt`** (machine event slug), **`scanned`**, **`sent`**, **`failed`**, **`skipped`** (and analogous counters), **`code`** when classifying failures.
+- Allowed: **`userId`**, **`cartId`**, **`subscriptionId`**, **`productId`**, **`alertId`**, **`op`**, **`evt`** (machine event slug), **`scanned`**, **`sent`**, **`failed`**, **`skipped`** (and analogous counters), **`code`** when classifying failures.
 - Do **not** log: email addresses, tokens, bearer values, rendered email bodies or subjects, recipient partials, product names in cart-item logging, raw Resend response bodies beyond success / message id correlation.
 
 ## Idempotency / throttle
@@ -97,6 +107,7 @@ All job-related logs **must remain id-only**:
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | Abandoned cart    | `updatedAt` older than `now − 24h` and (`lastAbandonedEmailAt` absent or **`now − 7d`** stale); **`lastAbandonedEmailAt`** stamped only after `send` returns **`ok`**; stamp uses **`updateMany`** guarded on the prior `lastAbandonedEmailAt` | `abandoned-cart/{userId}/{cartId}/{yyyy-mm-dd}` (UTC day of the cron run instant)     |
 | Upcoming delivery | none in DB — window + hourly slice                                                                                                                                                                                                             | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` (UTC day from **`nextDeliveryAt**`) |
+| Back in stock     | **`StockAlert.notifiedAt`** set only after **`send`** returns **`ok`**; **`updateMany`** guard (`notifiedAt` still null); episode counter **`Product.stockAlertEpisode`** scopes keys per sell-out cycle                                         | `back-in-stock-alert/{userId}/{productId}/{stockAlertEpisode}` (see [`email.md`](./email.md)) |
 
 Tunable knobs: abandonment delay (24h), reminder throttle (7d), and “three days before delivery” horizon are product-policy — update them here when you tune code.
 
@@ -109,11 +120,9 @@ Eligibility treats **`User.email IS NOT NULL` and `User.role === CUSTOMER`** as 
 1. Add **`run…Job`** in `src/services/jobRunner.ts`; export the case in **`JobName`** (how it appears under `/jobs/run/:name`).
 2. Register it in **`RUNNERS`** in `src/routes/jobs.ts`.
 3. Extend **`tests/unit/jobRunner.test.ts`** for batch limits, skips, failures, stamping, windows.
-4. Extend **`tests/integration/jobs.ts`** (`401`, `404`, `200`, `500`).
+4. Extend **`tests/integration/jobs.test.ts`** (`401`, `404`, `200`, `500`).
 5. Add scheduler entries pointing at **`POST /jobs/run/<job-name>`** + Bearer auth.
 6. Cross-link **`docs/email.md`** if new templates arrive.
-
-Phase 18 may add **`back-in-stock`** to the same **`RUNNERS`** map without new infra layers (same Bearer auth and id-only logging contract). If implemented as **inline** notification on restock instead of cron, document that choice in `docs/cron.md` and skip scheduler wiring for that path.
 
 ## Local manual trigger
 
@@ -130,7 +139,7 @@ curl -X POST \
 | Problem | Typical cause                                                                                                     |
 | ------- | ----------------------------------------------------------------------------------------------------------------- |
 | `401`   | Missing/malformed `Authorization` header, wrong token                                                             |
-| `404`   | Job name typo (`abandoned-cart`, `upcoming-delivery` in Phase 17; **`back-in-stock`** when Phase 18 registers it) |
+| `404`   | Job name typo — valid names: **`abandoned-cart`**, **`upcoming-delivery`**, **`back-in-stock`** |
 | `500`   | Unhandled runner throw — structured log **`evt=job_unhandled_error`** carries **`name`**, not exceptions          |
 
 ## Timezone

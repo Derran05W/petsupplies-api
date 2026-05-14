@@ -14,6 +14,7 @@ import {
   sendSubscriptionPaymentIssue,
   sendUpcomingDeliveryReminder,
 } from './emailService.js';
+import { onProductBecameOutOfStock } from './stockAlertService.js';
 import { env } from '../types/env.js';
 
 /** Snake_case subscription payloads from Stripe webhooks / REST (explicit shape avoids Prisma `Subscription` name clashes). */
@@ -827,6 +828,7 @@ export async function applyInvoiceToOrder(
   let createdOrderId = '';
   let finalizedStatus: 'PAID' | 'CANCELLED' = 'PAID';
   let oversold = false;
+  let subscriptionStockBefore: number | null = null;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -863,6 +865,12 @@ export async function applyInvoiceToOrder(
         },
       });
       createdOrderId = order.id;
+
+      const preStock = await tx.product.findUnique({
+        where: { id: localSub.productId },
+        select: { stock: true },
+      });
+      subscriptionStockBefore = preStock?.stock ?? 0;
 
       const dec = await tx.product.updateMany({
         where: { id: localSub.productId, stock: { gte: quantity } },
@@ -903,6 +911,13 @@ export async function applyInvoiceToOrder(
       }
     }
     throw e;
+  }
+
+  if (!oversold && subscriptionStockBefore !== null) {
+    const afterStock = subscriptionStockBefore - quantity;
+    if (subscriptionStockBefore > 0 && afterStock === 0) {
+      void onProductBecameOutOfStock(localSub.productId);
+    }
   }
 
   if (!createdOrderId) {
