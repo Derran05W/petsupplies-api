@@ -100,19 +100,19 @@ The Husky pre-commit hook runs `lint-staged`; commit-msg runs `commitlint`.
 
 ## Plans
 
-- Master plan: `.planning/plan.md` (24 phases mapped out)
+- Master plan: `.planning/plan.md` (24 phases mapped out; **launch queue** after Phase 17 is **18 → 20 → 24**; **19 and 21–23 deferred** — see “Launch-focused scope revision” in `plan.md`)
 - Phase tracker: `.planning/phases.md`
 - Pre-phase checklists: `.planning/pre-phase3-changes.md`
 - The `.planning/` folder is gitignored — never push to public repo
-- **Detail-plan only the next 1-2 phases at a time** — long-range plans decay
+- **Detail-plan only the next 1-2 phases at a time** — long-range plans decay (currently prioritize **Phase 18**, then **20 / 24** planning as each ships)
 
 ## Model usage
 
-| Task | Model | Effort |
-|---|---|---|
-| Architectural decisions, phase planning, complex debugging | Opus 4.7 | high |
+| Task                                                                | Model      | Effort |
+| ------------------------------------------------------------------- | ---------- | ------ |
+| Architectural decisions, phase planning, complex debugging          | Opus 4.7   | high   |
 | Implementing features, writing tests, following an established plan | Sonnet 4.6 | medium |
-| Mechanical tasks (rename, reformat, boilerplate) | Sonnet 4.6 | low |
+| Mechanical tasks (rename, reformat, boilerplate)                    | Sonnet 4.6 | low    |
 
 Default: **Sonnet 4.6, medium effort**. Switch to Opus only when the task requires deep reasoning — if the plan is already written and the scope is clear, stay on Sonnet.
 

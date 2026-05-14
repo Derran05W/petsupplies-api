@@ -352,8 +352,10 @@ describe('subscriptionService.applyInvoiceToOrder', () => {
         update: vi.fn(),
       },
       product: {
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        // Decrement call returns 1; OOS-claim CAS returns 0 (stock did not land at 0).
+        updateMany: vi.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 }),
       },
+      stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     };
 
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
@@ -380,8 +382,10 @@ describe('subscriptionService.applyInvoiceToOrder', () => {
         update: vi.fn(),
       },
       product: {
+        // Decrement returns 0 (oversold) — OOS claim is never reached.
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
+      stockAlert: { updateMany: vi.fn() },
     };
 
     vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
@@ -395,7 +399,61 @@ describe('subscriptionService.applyInvoiceToOrder', () => {
     expect(r.reason).toBe('OVERSOLD');
     expect(r.status).toBe('CANCELLED');
     expect(emailService.sendSubscriptionPaymentIssue).toHaveBeenCalled();
+    expect(txMock.stockAlert.updateMany).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it('Phase 18: bumps episode + clears notifiedAt when decrement lands stock at 0', async () => {
+    vi.mocked(prisma.order.findUnique)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'neword2',
+        status: 'PAID',
+        totalCents: 1900,
+        user: { email: 'u@test.com', name: 'U' },
+        items: [
+          {
+            quantity: 2,
+            priceCents: 1000,
+            product: { id: PRODUCT_ID, name: 'P' },
+          },
+        ],
+      } as never);
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(localSub as never);
+
+    const stockAlertUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const productUpdateMany = vi
+      .fn()
+      // Decrement succeeds
+      .mockResolvedValueOnce({ count: 1 })
+      // OOS-claim CAS lands (stock = 0)
+      .mockResolvedValueOnce({ count: 1 });
+    const txMock = {
+      order: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'neword2' }),
+        update: vi.fn(),
+      },
+      product: { updateMany: productUpdateMany },
+      stockAlert: { updateMany: stockAlertUpdateMany },
+    };
+
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
+      (cb as (tx: typeof txMock) => Promise<unknown>)(txMock),
+    );
+    vi.mocked(emailService.sendOrderConfirmation).mockResolvedValue({ ok: true });
+
+    const r = await subscriptionService.applyInvoiceToOrder(invoiceBase as never);
+
+    expect(r.status).toBe('PAID');
+    expect(productUpdateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: PRODUCT_ID, stock: 0 },
+      data: { stockAlertEpisode: { increment: 1 } },
+    });
+    expect(stockAlertUpdateMany).toHaveBeenCalledWith({
+      where: { productId: PRODUCT_ID },
+      data: { notifiedAt: null },
+    });
   });
 });
 

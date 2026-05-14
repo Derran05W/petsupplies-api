@@ -5,6 +5,7 @@ vi.mock('../../src/services/jobRunner.js', () => ({
   JOB_BATCH_SIZE: 200,
   runAbandonedCartJob: vi.fn(),
   runUpcomingDeliveryJob: vi.fn(),
+  runBackInStockNotificationJob: vi.fn(),
 }));
 
 import * as jobRunner from '../../src/services/jobRunner.js';
@@ -32,6 +33,13 @@ beforeEach(() => {
     failed: 0,
     skipped: 0,
     durationMs: 3,
+  });
+  vi.mocked(jobRunner.runBackInStockNotificationJob).mockResolvedValue({
+    scanned: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+    durationMs: 4,
   });
 });
 
@@ -95,6 +103,26 @@ describe('POST /jobs/run/:name', () => {
 
     const app = createApp();
     const res = await app.request('/jobs/run/upcoming-delivery', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${CRON}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(payload);
+  });
+
+  it('POST /jobs/run/back-in-stock returns 200 with JobResult JSON for valid bearer', async () => {
+    const payload = {
+      scanned: 3,
+      sent: 2,
+      failed: 0,
+      skipped: 1,
+      durationMs: 11,
+    };
+    vi.mocked(jobRunner.runBackInStockNotificationJob).mockResolvedValue(payload);
+
+    const app = createApp();
+    const res = await app.request('/jobs/run/back-in-stock', {
       method: 'POST',
       headers: { Authorization: `Bearer ${CRON}` },
     });

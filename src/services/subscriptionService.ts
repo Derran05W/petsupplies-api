@@ -879,6 +879,18 @@ export async function applyInvoiceToOrder(
         return;
       }
 
+      // Phase 18: claim OOS transition atomically (see webhookService for rationale).
+      const oosClaim = await tx.product.updateMany({
+        where: { id: localSub.productId, stock: 0 },
+        data: { stockAlertEpisode: { increment: 1 } },
+      });
+      if (oosClaim.count === 1) {
+        await tx.stockAlert.updateMany({
+          where: { productId: localSub.productId },
+          data: { notifiedAt: null },
+        });
+      }
+
       await tx.order.update({
         where: { id: order.id },
         data: { status: 'PAID' },

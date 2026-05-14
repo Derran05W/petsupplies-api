@@ -33,7 +33,7 @@ Stable keys per lifecycle (not secrets):
 | Order confirmation        | `order-confirmation/{orderId}`                   |
 | Shipping notification     | `shipping-notification/{orderId}`              |
 | Delivery confirmation     | `delivery-confirmation/{orderId}` (API/template only until `DELIVERED` status exists) |
-| Back in stock             | `back-in-stock-alert/{productId}`                |
+| Back in stock             | `back-in-stock-alert/{userId}/{productId}/{stockAlertEpisode}` — `stockAlertEpisode` is read from `Product` **at send time** (not at subscribe time), and is bumped atomically in the decrement transaction that lands `stock = 0`. |
 | Abandoned cart reminder   | `abandoned-cart/{userId}/{cartId}/{yyyy-mm-dd}` |
 | Password reset            | `password-reset/{userId}`                        |
 | Upcoming delivery reminder | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` |
@@ -61,6 +61,6 @@ Symptoms map loosely to Resend responses; check the dashboard and response body.
 
 - **Delivery confirmation** — waits on an order `DELIVERED` (or equivalent) status.
 - **Abandoned cart reminder** — Phase 17 wires HTTP cron to `runAbandonedCartJob` (see [`cron.md`](./cron.md)).
-- **Back in stock alert** — restock/alert flows in a later phase.
+- **Back in stock alert** — `POST /users/me/stock-alerts` while a SKU is out of stock; **`POST /jobs/run/back-in-stock`** retries pending rows when inline sends fail; admin **`PAID → CANCELLED`** restock fires inline dispatch. See [`cron.md`](./cron.md).
 - **Password reset** — `sendPasswordReset` is a **stub** (returns `{ ok: true, skipped: true }`); Supabase Auth owns default reset mail unless you replace that flow later. `renderPasswordReset` remains for future use / template tests.
 - **Subscribe & Save** — `sendUpcomingDeliveryReminder` / `sendSubscriptionPaymentIssue` are implemented in Phase 16; **`sendUpcomingDeliveryRemindersDue`** is invoked on a schedule via Phase 17 HTTP cron. See [`docs/subscriptions.md`](./subscriptions.md) and [`cron.md`](./cron.md).

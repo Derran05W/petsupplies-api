@@ -149,9 +149,9 @@ export async function sendBackInStockAlert(
   const rendered = renderBackInStockAlert(payload);
   return sendTransactionalEmail({
     template: 'back-in-stock-alert',
-    correlationId: payload.productId,
+    correlationId: `${payload.userId}:${payload.productId}`,
     to: payload.to,
-    idempotencyKey: `back-in-stock-alert/${payload.productId}`,
+    idempotencyKey: `back-in-stock-alert/${payload.userId}/${payload.productId}/${payload.stockAlertEpisode}`,
     rendered,
   });
 }

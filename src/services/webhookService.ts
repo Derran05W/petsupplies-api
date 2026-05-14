@@ -95,6 +95,21 @@ export async function handleSessionCompleted(session: Stripe.Checkout.Session): 
         if (result.count === 0) {
           throw new Error(`oversold:${item.productId}`);
         }
+
+        // Phase 18: claim the OOS transition atomically. Only the writer whose
+        // decrement lands the row at stock = 0 bumps the episode counter and
+        // clears pending notifiedAt markers — so the bump is at-most-once per
+        // real sell-out cycle even under concurrent paid checkouts.
+        const oosClaim = await tx.product.updateMany({
+          where: { id: item.productId, stock: 0 },
+          data: { stockAlertEpisode: { increment: 1 } },
+        });
+        if (oosClaim.count === 1) {
+          await tx.stockAlert.updateMany({
+            where: { productId: item.productId },
+            data: { notifiedAt: null },
+          });
+        }
       }
 
       if (order.discountId) {

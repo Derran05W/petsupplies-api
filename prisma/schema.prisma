@@ -20,6 +20,7 @@ model User {
   discountUsages  DiscountUsage[]
   reviews         Review[]
   wishlistItems   WishlistItem[]
+  stockAlerts     StockAlert[]
   pets            Pet[]
   subscriptions   Subscription[]
 }
@@ -50,6 +51,9 @@ model Product {
   subscriptionPrices   ProductSubscriptionPrice[]
   subscriptions        Subscription[]
 
+  stockAlertEpisode Int          @default(0)
+  stockAlerts       StockAlert[]
+
   @@index([category, active])
 }
 
@@ -63,6 +67,19 @@ model WishlistItem {
 
   @@unique([userId, productId])
   @@index([userId, addedAt])
+}
+
+model StockAlert {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  notifiedAt DateTime?
+
+  @@unique([userId, productId])
+  @@index([productId, notifiedAt])
 }
 
 model Pet {
