@@ -39,7 +39,7 @@ JSON JobResult { scanned, sent, failed, skipped, durationMs }
 
 1. Generate a long random bearer (e.g. 32 random bytes as 64-character hex).
 2. Set **`CRON_BEARER_TOKEN`** to that value on **both**:
-   - the **main API** Railway service, and  
+   - the **main API** Railway service, and
    - the **cron caller** Railway service that runs scheduled commands.
 3. Create a cron service that runs hourly (adjust if you deliberately change tempo).
 4. Cron command examples (cron service env should include **`API_URL`** pointing at `https://<your-service>.up.railway.app`):
@@ -78,9 +78,9 @@ Wire `secrets.CRON_BEARER_TOKEN` and `secrets.API_URL` per environment.
 
 ## Auth
 
-`POST /jobs/run/:name` uses **`cronAuth`**: **`Authorization: Bearer <token>`** only (no `?token=` query params).  
+`POST /jobs/run/:name` uses **`cronAuth`**: **`Authorization: Bearer <token>`** only (no `?token=` query params).
 
-The bearer is compared with `crypto.timingSafeEqual`; buffers must match in length — otherwise the handler responds `401` without calling `timingSafeEqual` with mismatched lengths.  
+The bearer is compared with `crypto.timingSafeEqual`; buffers must match in length — otherwise the handler responds `401` without calling `timingSafeEqual` with mismatched lengths.
 
 The bearer is **never** logged. Responses are `{ "error": "UNAUTHORIZED" }` without extra detail.
 
@@ -93,10 +93,10 @@ All job-related logs **must remain id-only**:
 
 ## Idempotency / throttle
 
-| Job | Postgres throttle | Resend key |
-| --- | --- | --- |
-| Abandoned cart | `updatedAt` older than `now − 24h` and (`lastAbandonedEmailAt` absent or **`now − 7d`** stale); **`lastAbandonedEmailAt`** stamped only after `send` returns **`ok`**; stamp uses **`updateMany`** guarded on the prior `lastAbandonedEmailAt` | `abandoned-cart/{userId}/{cartId}/{yyyy-mm-dd}` (UTC day of the cron run instant) |
-| Upcoming delivery | none in DB — window + hourly slice | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` (UTC day from **`nextDeliveryAt**`) |
+| Job               | Postgres throttle                                                                                                                                                                                                                              | Resend key                                                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Abandoned cart    | `updatedAt` older than `now − 24h` and (`lastAbandonedEmailAt` absent or **`now − 7d`** stale); **`lastAbandonedEmailAt`** stamped only after `send` returns **`ok`**; stamp uses **`updateMany`** guarded on the prior `lastAbandonedEmailAt` | `abandoned-cart/{userId}/{cartId}/{yyyy-mm-dd}` (UTC day of the cron run instant)     |
+| Upcoming delivery | none in DB — window + hourly slice                                                                                                                                                                                                             | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` (UTC day from **`nextDeliveryAt**`) |
 
 Tunable knobs: abandonment delay (24h), reminder throttle (7d), and “three days before delivery” horizon are product-policy — update them here when you tune code.
 
@@ -113,7 +113,7 @@ Eligibility treats **`User.email IS NOT NULL` and `User.role === CUSTOMER`** as 
 5. Add scheduler entries pointing at **`POST /jobs/run/<job-name>`** + Bearer auth.
 6. Cross-link **`docs/email.md`** if new templates arrive.
 
-Phase 18 may add **`back-in-stock`** to the same **`RUNNERS`** map without new infra layers.
+Phase 18 may add **`back-in-stock`** to the same **`RUNNERS`** map without new infra layers (same Bearer auth and id-only logging contract). If implemented as **inline** notification on restock instead of cron, document that choice in `docs/cron.md` and skip scheduler wiring for that path.
 
 ## Local manual trigger
 
@@ -127,11 +127,11 @@ curl -X POST \
 
 ## Troubleshooting
 
-| Problem | Typical cause |
-| --- | --- |
-| `401` | Missing/malformed `Authorization` header, wrong token |
-| `404` | Job name typo (`abandoned-cart`, `upcoming-delivery` only in Phase 17) |
-| `500` | Unhandled runner throw — structured log **`evt=job_unhandled_error`** carries **`name`**, not exceptions |
+| Problem | Typical cause                                                                                                     |
+| ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `401`   | Missing/malformed `Authorization` header, wrong token                                                             |
+| `404`   | Job name typo (`abandoned-cart`, `upcoming-delivery` in Phase 17; **`back-in-stock`** when Phase 18 registers it) |
+| `500`   | Unhandled runner throw — structured log **`evt=job_unhandled_error`** carries **`name`**, not exceptions          |
 
 ## Timezone
 

@@ -8,10 +8,10 @@ Operational runbook for deploying `petsupplies-api` to Railway. This document co
 
 ## Architecture overview
 
-| Environment | Branch | Railway service | Supabase project | Stripe account |
-| --- | --- | --- | --- | --- |
-| Staging | `staging` | `petsupplies-api-staging` | staging Supabase project | Stripe **test** mode |
-| Production | `main` | `petsupplies-api-prod` | prod Supabase project | Stripe **live** mode |
+| Environment | Branch    | Railway service           | Supabase project         | Stripe account       |
+| ----------- | --------- | ------------------------- | ------------------------ | -------------------- |
+| Staging     | `staging` | `petsupplies-api-staging` | staging Supabase project | Stripe **test** mode |
+| Production  | `main`    | `petsupplies-api-prod`    | prod Supabase project    | Stripe **live** mode |
 
 Railway watches each branch via its GitHub integration, builds the image from the repo-root `Dockerfile`, and rolls out a new deployment on every successful push. There are no deploy jobs in GitHub Actions — Railway owns the deploy path. CI's job is to fail before a bad commit ever reaches a watched branch.
 
@@ -84,6 +84,30 @@ Transactional email uses Resend (`resend`). Set these **per Railway service** (s
 
 - `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents).
 - `FLAT_SHIPPING_CENTS` — default `599` (cents).
+
+### Canada Post (Phase 24 — planned; live rates + fallback)
+
+Phase 24 adds **Canada Post** rating alongside the existing flat / free-shipping thresholds. **Checkout must remain usable** when credentials are missing or the carrier API fails: the API falls back to current `FLAT_SHIPPING_CENTS` / threshold logic (see `.planning/plan.md` § Phase 24).
+
+**Set on each Railway service when implementing Phase 24** (exact names should match `src/types/env.ts` after implementation; reserve these in 1Password / Railway until then):
+
+| Variable                                         | Purpose                                                                                                         |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `CANADA_POST_CUSTOMER_NUMBER`                    | Canada Post customer number (developer / production profile).                                                   |
+| `CANADA_POST_API_KEY`                            | REST credential from [Canada Post Developers](https://www.canadapost-postescanada.ca/information/app/drc/home). |
+| `CANADA_POST_CONTRACT_ID`                        | Optional — negotiated rates / contract shipping when applicable.                                                |
+| `CANADA_POST_PLATFORM_ID`                        | Optional — required only if the chosen API surface mandates a third-party platform id.                          |
+| `CANADA_POST_USE_TEST` or `CANADA_POST_BASE_URL` | Sandbox vs production base URL (pick one strategy in code; document the chosen flag here when implemented).     |
+
+Operational checklist (staging, then prod):
+
+1. Create **separate** developer keys for staging vs prod where Canada Post allows it; never reuse prod keys on staging.
+2. Confirm **origin postal code** (warehouse) is configurable (env such as `SHIP_FROM_POSTAL_CODE` — final name TBD in implementation) and matches a valid ship-from on the contract.
+3. **Timeouts:** keep strict HTTP timeouts so checkout never blocks on a hung carrier response.
+4. **Smoke:** with valid keys, quote a known-good destination + cart; then **unset** `CANADA_POST_API_KEY` and confirm checkout still completes with flat rate.
+5. Redeploy after env changes.
+
+Webhook / Stripe event list is unchanged unless Phase 24 introduces new Stripe objects (document delta in this section when merging).
 
 ---
 
@@ -191,6 +215,18 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_BEARER_TOKEN" \
 ```
 
 Expect HTTP `200` and `JobResult` JSON (`scanned`, `sent`, `failed`, `skipped`, `durationMs`). Inspect logs remain id-only (`userId`, `cartId`, `subscriptionId`, no tokens / bodies).
+
+---
+
+## Phase 24 — Canada Post (staging smoke)
+
+After Phase 24 merges:
+
+1. Set Canada Post env vars on **staging** (see the **Canada Post** subsection under [Per-service env vars](#per-service-env-vars)).
+2. Ensure at least one product has **`weightGrams`** (or equivalent) populated; confirm another product **without** weight still allows checkout via **fallback** pricing.
+3. Call the shipping **quote** endpoint with a valid saved `addressId` (or inline address per final API); assert returned options include **amountCents** + stable **selection token** (or documented selection binding).
+4. Complete checkout with a **live-rate** selection; confirm Stripe Checkout totals match the `Order` snapshot fields for shipping.
+5. Simulate provider outage (wrong key or firewall) and confirm checkout still succeeds with **flat / free** shipping and logs contain **no** raw PII dumps.
 
 ---
 
