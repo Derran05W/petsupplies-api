@@ -3,7 +3,10 @@ import type { OrderStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../types/env.js';
 import { sendShippingNotification } from './emailService.js';
-import { dispatchBackInStockNotifications } from './stockAlertService.js';
+import {
+  dispatchBackInStockNotifications,
+  fireAndForgetStockAlertOp,
+} from './stockAlertService.js';
 
 // ── Input / output types ──────────────────────────────────────────────────────
 
@@ -297,6 +300,17 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
 
   // PAID → CANCELLED: restore stock atomically, log incident
   if (current === 'PAID' && targetStatus === 'CANCELLED') {
+    // Sum restored quantity per product so a defensive duplicate (orderId, productId)
+    // pair would still increment correctly and we evaluate the 0 → >0 transition
+    // exactly once per product.
+    const totalRestoredByProduct = new Map<string, number>();
+    for (const item of order.items) {
+      totalRestoredByProduct.set(
+        item.productId,
+        (totalRestoredByProduct.get(item.productId) ?? 0) + item.quantity,
+      );
+    }
+
     const restockNotifyProductIds: string[] = [];
 
     await prisma.$transaction(async (tx) => {
@@ -307,19 +321,21 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
         FOR UPDATE
       `;
 
-      for (const item of order.items) {
-        const beforeRow = await tx.product.findUnique({
-          where: { id: item.productId },
-          select: { stock: true },
-        });
-        const prevStock = beforeRow?.stock ?? 0;
+      const productIds = [...totalRestoredByProduct.keys()];
+      const beforeRows = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, stock: true },
+      });
+      const stockBefore = new Map(beforeRows.map((r) => [r.id, r.stock]));
+
+      for (const [productId, qty] of totalRestoredByProduct) {
         await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
+          where: { id: productId },
+          data: { stock: { increment: qty } },
         });
-        const nextStock = prevStock + item.quantity;
-        if (prevStock === 0 && nextStock > 0) {
-          restockNotifyProductIds.push(item.productId);
+        const prev = stockBefore.get(productId) ?? 0;
+        if (prev === 0 && qty > 0) {
+          restockNotifyProductIds.push(productId);
         }
       }
 
@@ -329,8 +345,12 @@ export async function updateAdminOrderStatus(orderId: string, input: UpdateAdmin
       });
     });
 
-    for (const pid of [...new Set(restockNotifyProductIds)]) {
-      void dispatchBackInStockNotifications(pid);
+    for (const pid of restockNotifyProductIds) {
+      fireAndForgetStockAlertOp(
+        dispatchBackInStockNotifications(pid),
+        'dispatchBackInStockNotifications',
+        { productId: pid },
+      );
     }
 
     console.error(

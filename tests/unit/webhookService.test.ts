@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     order: { findUnique: vi.fn(), update: vi.fn() },
-    product: { findMany: vi.fn() },
+    product: {},
     subscription: {
       updateMany: vi.fn(),
       findFirst: vi.fn(),
@@ -47,10 +47,6 @@ vi.mock('../../src/services/emailService.js', () => ({
 
 vi.mock('../../src/services/discountService.js', () => ({
   applyToOrder: vi.fn(),
-}));
-
-vi.mock('../../src/services/stockAlertService.js', () => ({
-  onProductBecameOutOfStock: vi.fn().mockResolvedValue(undefined),
 }));
 
 import * as discountService from '../../src/services/discountService.js';
@@ -105,24 +101,99 @@ function makeSession(overrides: Partial<Stripe.Checkout.Session>): Stripe.Checko
 
 beforeEach(() => {
   vi.clearAllMocks();
-  let stockFindManyCall = 0;
-  vi.mocked(prisma.product.findMany).mockImplementation(async () => {
-    stockFindManyCall += 1;
-    if (stockFindManyCall === 1) {
-      return [{ id: 'prod-1', stock: 10 }];
-    }
-    return [{ id: 'prod-1', stock: 8 }];
-  });
 });
 
 describe('webhookService', () => {
+  describe('handleSessionCompleted Phase 18 OOS-claim', () => {
+    it('bumps episode and clears notifiedAt when decrement lands stock at 0', async () => {
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      mockFindUniqueAfterPaid();
+      const stockAlertUpdateMany = vi.fn().mockResolvedValue({ count: 3 });
+      const productUpdateMany = vi
+        .fn()
+        // First call: decrement succeeds
+        .mockResolvedValueOnce({ count: 1 })
+        // Second call: OOS-claim CAS lands (stock = 0)
+        .mockResolvedValueOnce({ count: 1 });
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: productUpdateMany },
+        stockAlert: { updateMany: stockAlertUpdateMany },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(productUpdateMany).toHaveBeenCalledTimes(2);
+      expect(productUpdateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'prod-1', stock: 0 },
+        data: { stockAlertEpisode: { increment: 1 } },
+      });
+      expect(stockAlertUpdateMany).toHaveBeenCalledWith({
+        where: { productId: 'prod-1' },
+        data: { notifiedAt: null },
+      });
+    });
+
+    it('does NOT clear notifiedAt when decrement leaves stock > 0', async () => {
+      vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
+      mockFindUniqueAfterPaid();
+      const stockAlertUpdateMany = vi.fn();
+      const productUpdateMany = vi
+        .fn()
+        .mockResolvedValueOnce({ count: 1 })
+        // OOS-claim CAS misses (stock did not land at 0)
+        .mockResolvedValueOnce({ count: 0 });
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: productUpdateMany },
+        stockAlert: { updateMany: stockAlertUpdateMany },
+        order: { update: vi.fn().mockResolvedValue({}) },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+      await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(productUpdateMany).toHaveBeenCalledTimes(2);
+      expect(stockAlertUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('does NOT reach OOS-claim CAS on oversold (decrement count 0)', async () => {
+      vi.mocked(prisma.order.findUnique).mockResolvedValue(pendingOrderWithItems as never);
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const stockAlertUpdateMany = vi.fn();
+      const productUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+        product: { updateMany: productUpdateMany },
+        stockAlert: { updateMany: stockAlertUpdateMany },
+        order: { update: vi.fn() },
+      };
+      vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+      vi.mocked(prisma.order.update).mockResolvedValue({} as never);
+
+      await webhookService.handleSessionCompleted(makeSession({}));
+
+      expect(productUpdateMany).toHaveBeenCalledTimes(1);
+      expect(stockAlertUpdateMany).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+  });
+
   describe('handleSessionCompleted', () => {
     it('marks PAID, decrements stock, sets payment intent and totalCents', async () => {
       vi.mocked(sendOrderConfirmation).mockResolvedValue({ ok: true });
       mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -166,7 +237,13 @@ describe('webhookService', () => {
       mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -278,7 +355,13 @@ describe('webhookService', () => {
       mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -305,7 +388,13 @@ describe('webhookService', () => {
       mockFindUniqueAfterPaid();
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -350,7 +439,13 @@ describe('webhookService', () => {
         } as never);
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -387,7 +482,13 @@ describe('webhookService', () => {
         } as never);
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -438,7 +539,13 @@ describe('webhookService', () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
@@ -468,7 +575,13 @@ describe('webhookService', () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
-        product: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        product: {
+          updateMany: vi
+            .fn()
+            .mockResolvedValueOnce({ count: 1 })
+            .mockResolvedValueOnce({ count: 0 }),
+        },
+        stockAlert: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
         order: { update: vi.fn().mockResolvedValue({}) },
       };
       vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));

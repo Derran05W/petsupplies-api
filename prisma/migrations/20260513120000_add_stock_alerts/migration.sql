@@ -16,9 +16,6 @@ CREATE TABLE "StockAlert" (
 CREATE UNIQUE INDEX "StockAlert_userId_productId_key" ON "StockAlert"("userId", "productId");
 
 -- CreateIndex
-CREATE INDEX "StockAlert_productId_idx" ON "StockAlert"("productId");
-
--- CreateIndex
 CREATE INDEX "StockAlert_productId_notifiedAt_idx" ON "StockAlert"("productId", "notifiedAt");
 
 -- AddForeignKey

@@ -10,7 +10,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
       count: vi.fn(),
       update: vi.fn(),
     },
-    product: { update: vi.fn() },
+    product: { update: vi.fn(), findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -26,11 +26,15 @@ vi.mock('../../src/services/stockAlertService.js', () => ({
     failed: 0,
     skipped: 0,
   }),
+  fireAndForgetStockAlertOp: vi.fn((promise: Promise<unknown>) => {
+    void promise;
+  }),
 }));
 
 import { prisma } from '../../src/lib/prisma.js';
 import { sendShippingNotification } from '../../src/services/emailService.js';
 import * as orderService from '../../src/services/orderService.js';
+import * as stockAlertService from '../../src/services/stockAlertService.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -318,7 +322,7 @@ describe('orderService.updateAdminOrderStatus', () => {
     const txMock = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
       product: {
-        findUnique: vi.fn().mockResolvedValue({ stock: 3 }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'prod-1', stock: 3 }]),
         update: vi.fn().mockResolvedValue({}),
       },
       order: { update: vi.fn().mockResolvedValue({}) },
@@ -341,6 +345,76 @@ describe('orderService.updateAdminOrderStatus', () => {
       expect.stringContaining('order-1'),
     );
     expect(sendShippingNotification).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('Phase 18: PAID → CANCELLED fires dispatchBackInStockNotifications when stock crosses 0 → >0', async () => {
+    setupFindUnique(paidOrder);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const txMock = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+      product: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'prod-1', stock: 0 }]),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      order: { update: vi.fn().mockResolvedValue({}) },
+    };
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+    await orderService.updateAdminOrderStatus('order-1', { status: 'CANCELLED' });
+
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledTimes(1);
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledWith('prod-1');
+    expect(stockAlertService.fireAndForgetStockAlertOp).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('Phase 18: PAID → CANCELLED does NOT dispatch when prev stock was already > 0', async () => {
+    setupFindUnique(paidOrder);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const txMock = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+      product: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'prod-1', stock: 5 }]),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      order: { update: vi.fn().mockResolvedValue({}) },
+    };
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+    await orderService.updateAdminOrderStatus('order-1', { status: 'CANCELLED' });
+
+    expect(stockAlertService.dispatchBackInStockNotifications).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('Phase 18: PAID → CANCELLED dedupes when two items share the same productId', async () => {
+    const dupOrder = {
+      ...paidOrder,
+      items: [orderItem, { ...orderItem, id: 'oi-2' }],
+    };
+    setupFindUnique(dupOrder);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const txMock = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'order-1' }]),
+      product: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'prod-1', stock: 0 }]),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      order: { update: vi.fn().mockResolvedValue({}) },
+    };
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => fn(txMock as never));
+
+    await orderService.updateAdminOrderStatus('order-1', { status: 'CANCELLED' });
+
+    // Single product.update with summed quantity (2 items × 2 qty = 4)
+    expect(txMock.product.update).toHaveBeenCalledTimes(1);
+    expect(txMock.product.update).toHaveBeenCalledWith({
+      where: { id: 'prod-1' },
+      data: { stock: { increment: 4 } },
+    });
+    // Dispatch fires exactly once for the deduped product.
+    expect(stockAlertService.dispatchBackInStockNotifications).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });
 

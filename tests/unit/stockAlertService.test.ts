@@ -46,12 +46,45 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('fireAndForgetStockAlertOp', () => {
+  it('swallows promise rejection and logs id-only payload', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = new Error('boom');
+    err.name = 'PrismaClientKnownRequestError';
+    const rejecting = Promise.reject(err);
+    stockAlertService.fireAndForgetStockAlertOp(rejecting, 'onProductBecameOutOfStock', {
+      productId: PID,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(warn).toHaveBeenCalledOnce();
+    const logged = warn.mock.calls[0]![0] as string;
+    expect(logged).toContain('inline_dispatch_error');
+    expect(logged).toContain('onProductBecameOutOfStock');
+    expect(logged).toContain(PID);
+    // Confirm the helper does not log any address-like content.
+    expect(logged).not.toContain('@');
+    warn.mockRestore();
+  });
+
+  it('is a no-op when the promise resolves', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    stockAlertService.fireAndForgetStockAlertOp(
+      Promise.resolve(),
+      'dispatchBackInStockNotifications',
+      { productId: PID },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
 describe('onProductBecameOutOfStock', () => {
   it('runs episode increment and clears notifiedAt in a transaction', async () => {
     vi.mocked(prisma.$transaction).mockResolvedValue(undefined);
     await stockAlertService.onProductBecameOutOfStock(PID);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    const ops = vi.mocked(prisma.$transaction).mock.calls[0]![0] as unknown[];
+    const ops = vi.mocked(prisma.$transaction).mock.calls[0]![0] as unknown as unknown[];
     expect(ops).toHaveLength(2);
   });
 });
@@ -238,7 +271,9 @@ describe('dispatchBackInStockNotifications', () => {
 describe('addStockAlert', () => {
   it('throws 404 when product missing', async () => {
     vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
-    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toMatchObject({
+    await expect(
+      stockAlertService.addStockAlert({ userId: UID, productId: PID }),
+    ).rejects.toMatchObject({
       status: 404,
     });
   });
@@ -249,7 +284,9 @@ describe('addStockAlert', () => {
       stock: 0,
       active: false,
     } as never);
-    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toMatchObject({
+    await expect(
+      stockAlertService.addStockAlert({ userId: UID, productId: PID }),
+    ).rejects.toMatchObject({
       status: 409,
       message: 'PRODUCT_INACTIVE',
     });
@@ -261,7 +298,9 @@ describe('addStockAlert', () => {
       stock: 3,
       active: true,
     } as never);
-    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toMatchObject({
+    await expect(
+      stockAlertService.addStockAlert({ userId: UID, productId: PID }),
+    ).rejects.toMatchObject({
       status: 409,
       message: 'IN_STOCK',
     });
@@ -274,7 +313,9 @@ describe('addStockAlert', () => {
       active: true,
     } as never);
     vi.mocked(prisma.stockAlert.count).mockResolvedValue(500);
-    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toMatchObject({
+    await expect(
+      stockAlertService.addStockAlert({ userId: UID, productId: PID }),
+    ).rejects.toMatchObject({
       status: 400,
       message: 'STOCK_ALERTS_FULL',
     });
@@ -343,7 +384,9 @@ describe('addStockAlert', () => {
     vi.mocked(prisma.stockAlert.create).mockRejectedValue(dup);
     vi.mocked(prisma.stockAlert.findUnique).mockResolvedValue(null);
 
-    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toBe(dup);
+    await expect(stockAlertService.addStockAlert({ userId: UID, productId: PID })).rejects.toBe(
+      dup,
+    );
   });
 });
 

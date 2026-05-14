@@ -73,7 +73,17 @@ function toItemResponse(row: StockAlertWithProduct): StockAlertItemResponse {
   };
 }
 
-/** When sellable stock hits zero: advance episode and clear pending-notification markers. */
+/**
+ * When sellable stock hits zero: advance episode and clear pending-notification markers.
+ *
+ * The PAID-decrement and subscription-invoice-decrement paths perform an equivalent
+ * atomic CAS inside their own `$transaction` (see `webhookService.handleSessionCompleted`
+ * and `subscriptionService.applyInvoiceToOrder`) so they don't call this helper —
+ * doing the episode bump as part of the same tx avoids double-fire under concurrent
+ * decrements landing the product at `stock = 0`. This export remains for any future
+ * caller (e.g. an admin force-OOS tool) that needs to mark a product OOS outside
+ * a hot decrement path.
+ */
 export async function onProductBecameOutOfStock(productId: string): Promise<void> {
   await prisma.$transaction([
     prisma.product.update({
@@ -85,6 +95,28 @@ export async function onProductBecameOutOfStock(productId: string): Promise<void
       data: { notifiedAt: null },
     }),
   ]);
+}
+
+/**
+ * Wraps a fire-and-forget stock-alert side-effect with an id-only error log so
+ * a transient DB / Resend failure never becomes an unhandled promise rejection.
+ * Stock mutations must not block on these dispatches (see `docs/cron.md`).
+ */
+export function fireAndForgetStockAlertOp(
+  promise: Promise<unknown>,
+  op: 'onProductBecameOutOfStock' | 'dispatchBackInStockNotifications',
+  ids: { productId: string },
+): void {
+  promise.catch((err) => {
+    console.warn(
+      JSON.stringify({
+        op,
+        evt: 'inline_dispatch_error',
+        productId: ids.productId,
+        code: err instanceof Error ? err.name : 'UNKNOWN',
+      }),
+    );
+  });
 }
 
 export interface DispatchBackInStockStats {

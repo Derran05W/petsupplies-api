@@ -79,7 +79,6 @@ model StockAlert {
   notifiedAt DateTime?
 
   @@unique([userId, productId])
-  @@index([productId])
   @@index([productId, notifiedAt])
 }
 

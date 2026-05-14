@@ -14,7 +14,6 @@ import {
   sendSubscriptionPaymentIssue,
   sendUpcomingDeliveryReminder,
 } from './emailService.js';
-import { onProductBecameOutOfStock } from './stockAlertService.js';
 import { env } from '../types/env.js';
 
 /** Snake_case subscription payloads from Stripe webhooks / REST (explicit shape avoids Prisma `Subscription` name clashes). */
@@ -828,7 +827,6 @@ export async function applyInvoiceToOrder(
   let createdOrderId = '';
   let finalizedStatus: 'PAID' | 'CANCELLED' = 'PAID';
   let oversold = false;
-  let subscriptionStockBefore: number | null = null;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -866,12 +864,6 @@ export async function applyInvoiceToOrder(
       });
       createdOrderId = order.id;
 
-      const preStock = await tx.product.findUnique({
-        where: { id: localSub.productId },
-        select: { stock: true },
-      });
-      subscriptionStockBefore = preStock?.stock ?? 0;
-
       const dec = await tx.product.updateMany({
         where: { id: localSub.productId, stock: { gte: quantity } },
         data: { stock: { decrement: quantity } },
@@ -885,6 +877,18 @@ export async function applyInvoiceToOrder(
           data: { status: 'CANCELLED' },
         });
         return;
+      }
+
+      // Phase 18: claim OOS transition atomically (see webhookService for rationale).
+      const oosClaim = await tx.product.updateMany({
+        where: { id: localSub.productId, stock: 0 },
+        data: { stockAlertEpisode: { increment: 1 } },
+      });
+      if (oosClaim.count === 1) {
+        await tx.stockAlert.updateMany({
+          where: { productId: localSub.productId },
+          data: { notifiedAt: null },
+        });
       }
 
       await tx.order.update({
@@ -911,13 +915,6 @@ export async function applyInvoiceToOrder(
       }
     }
     throw e;
-  }
-
-  if (!oversold && subscriptionStockBefore !== null) {
-    const afterStock = subscriptionStockBefore - quantity;
-    if (subscriptionStockBefore > 0 && afterStock === 0) {
-      void onProductBecameOutOfStock(localSub.productId);
-    }
   }
 
   if (!createdOrderId) {

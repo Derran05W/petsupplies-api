@@ -33,7 +33,7 @@ Stable keys per lifecycle (not secrets):
 | Order confirmation        | `order-confirmation/{orderId}`                   |
 | Shipping notification     | `shipping-notification/{orderId}`              |
 | Delivery confirmation     | `delivery-confirmation/{orderId}` (API/template only until `DELIVERED` status exists) |
-| Back in stock             | `back-in-stock-alert/{userId}/{productId}/{stockAlertEpisode}` |
+| Back in stock             | `back-in-stock-alert/{userId}/{productId}/{stockAlertEpisode}` — `stockAlertEpisode` is read from `Product` **at send time** (not at subscribe time), and is bumped atomically in the decrement transaction that lands `stock = 0`. |
 | Abandoned cart reminder   | `abandoned-cart/{userId}/{cartId}/{yyyy-mm-dd}` |
 | Password reset            | `password-reset/{userId}`                        |
 | Upcoming delivery reminder | `upcoming-delivery/{subscriptionId}/{yyyy-mm-dd}` |
