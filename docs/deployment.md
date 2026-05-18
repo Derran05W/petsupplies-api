@@ -288,6 +288,7 @@ Target: ≤ 500MB. We can revisit a `pnpm deploy --prod` prune stage if we drift
 
 ## Operational notes
 
+- **Phase 21 extended admin dashboard** (`GET /admin/analytics/*`, `GET/PATCH`-style fulfillment helpers): **no new env vars** vs Phase 17. Inventory and caveats live in [`docs/admin-dashboard.md`](./admin-dashboard.md).
 - **Migrations** run on every container boot via the `CMD`. For backwards-incompatible schema changes, split into expand → migrate → contract phases so a rolling restart keeps both old and new container generations alive.
 - **Manual refunds**: paid admin cancellations log `[admin_cancel_paid_incident]` with the Stripe payment intent. The API does **not** call Stripe Refunds; issue refunds manually in the Stripe dashboard for MVP (Phase 8 decision).
 - **Rolling back**: Railway dashboard → service → Deployments → choose a previous successful build → **Redeploy**. The container will re-apply migrations on boot, so rolling back is safe only if the migration history is also compatible.
