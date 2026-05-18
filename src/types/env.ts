@@ -52,6 +52,8 @@ const envSchema = z
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
     CRON_BEARER_TOKEN: z.string().min(32),
+    SUPABASE_STORAGE_BUCKET: z.string().min(1).default('product-images'),
+    SUPABASE_PRODUCT_IMAGE_MAX_BYTES: z.coerce.number().int().positive().default(5_000_000),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {
