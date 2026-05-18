@@ -14,11 +14,11 @@ Invalid input returns `INVALID_FORMAT` from validation; routes map this to HTTP 
 
 ## Discount types
 
-| Type            | `value` semantics                      | Product discount (`discountCents`)     | Shipping                          | Stripe                          |
-| --------------- | -------------------------------------- | -------------------------------------- | --------------------------------- | ------------------------------- |
-| `PERCENTAGE`    | 1–100 (percent of subtotal)            | `floor(subtotal * value / 100)`, capped at subtotal | Threshold-based unless overridden | Stripe Coupon + Checkout `discounts` |
-| `FIXED`         | Cents off subtotal                     | `min(value, subtotal)`                 | Same as above                     | Stripe Coupon + Checkout `discounts` |
-| `FREE_SHIPPING` | Must be `0`                            | `0`                                    | Forces zero-cost shipping option  | **No** Stripe coupon            |
+| Type            | `value` semantics           | Product discount (`discountCents`)                  | Shipping                          | Stripe                               |
+| --------------- | --------------------------- | --------------------------------------------------- | --------------------------------- | ------------------------------------ |
+| `PERCENTAGE`    | 1–100 (percent of subtotal) | `floor(subtotal * value / 100)`, capped at subtotal | Threshold-based unless overridden | Stripe Coupon + Checkout `discounts` |
+| `FIXED`         | Cents off subtotal          | `min(value, subtotal)`                              | Same as above                     | Stripe Coupon + Checkout `discounts` |
+| `FREE_SHIPPING` | Must be `0`                 | `0`                                                 | Forces zero-cost shipping option  | **No** Stripe coupon                 |
 
 Cart preview:
 
@@ -70,6 +70,12 @@ Log discount **ids** and coarse reasons (e.g. validation rejected, redemption ra
 
 If Stripe coupon creation succeeds but the local insert fails, logs include `[discount_orphan_stripe_coupon]` with the Stripe coupon id; delete the orphan in the Stripe Dashboard.
 
-## Deferred (Phase 21)
+## Deferred (beyond Phase 21 analytics)
 
-Patch/disable/delete discounts, analytics, product-scoped rules, stacking, promotion codes, and general rate limiting middleware (unless added separately).
+Phase 21 introduced **discount analytics**: `GET /admin/analytics/discounts` (auth + admin; aggregates only). See [`docs/admin-dashboard.md`](./admin-dashboard.md).
+
+Still intentionally deferred:
+
+- Patch/disable/delete discount admin mutations
+- Product-scoped rules, stacking, promotion codes
+- General rate limiting middleware on `/admin/*` (unless added separately)

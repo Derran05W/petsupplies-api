@@ -7,11 +7,31 @@ import * as orderService from '../services/orderService.js';
 import * as discountService from '../services/discountService.js';
 import { StripeCouponRejectedError } from '../services/discountService.js';
 import * as subscriptionService from '../services/subscriptionService.js';
+import * as fulfillmentService from '../services/fulfillmentService.js';
 import type { Variables } from '../types/hono.js';
+import { adminAnalyticsRouter } from './adminDashboard.js';
+import { adminCustomersRouter } from './adminCustomers.js';
+import { adminFulfillmentRouter } from './adminFulfillment.js';
 
 const router = new Hono<{ Variables: Variables }>();
 
 router.use('*', auth, adminOnly);
+
+router.route('/analytics', adminAnalyticsRouter);
+router.route('/customers', adminCustomersRouter);
+router.route('/fulfillment', adminFulfillmentRouter);
+
+const adminUpdateTrackingSchema = z.object({
+  trackingNumber: z.string().min(1),
+  carrier: z.string().min(1),
+});
+
+router.patch('/orders/:id/tracking', zValidator('json', adminUpdateTrackingSchema), async (c) => {
+  const id = c.req.param('id');
+  const body = c.req.valid('json');
+  const order = await fulfillmentService.updateOrderTracking(id, body);
+  return c.json(order);
+});
 
 const adminListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
