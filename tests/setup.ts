@@ -17,5 +17,8 @@ process.env.CRON_BEARER_TOKEN =
   process.env.CRON_BEARER_TOKEN || 'test-cron-bearer-token-min-32-chars-xxxx';
 process.env.RESEND_API_KEY ??= 'test-resend-key';
 process.env.EMAIL_FROM ??= 'Pet Supplies <test@example.com>';
+process.env.CANADA_POST_API_KEY ||= 'test-canada-post-api-key';
+process.env.CANADA_POST_CUSTOMER_NUMBER ||= '0000000000';
+process.env.SHIP_FROM_POSTAL_CODE ||= 'K1A0A1';
 // Always run in test mode regardless of what .env specifies
 process.env.NODE_ENV = 'test';

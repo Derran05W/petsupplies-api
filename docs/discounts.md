@@ -46,6 +46,8 @@ Stripe does **not** model `validFrom`; the API remains canonical for the start w
 
 `FREE_SHIPPING` discounts do **not** create Stripe coupons; Checkout uses a zero `shipping_options` rate (display name “Free shipping”) below the free-shipping threshold.
 
+**Phase 24 (live Canada Post rates):** `FREE_SHIPPING` still forces `$0` shipping on **`POST /shipping/quote`** and at checkout. A stale live-rate token with a non-zero amount is rejected when the cart qualifies for free shipping.
+
 ## Webhook redemption
 
 Inside the existing `PENDING → PAID` transaction (after guarded stock decrements, before status flips to `PAID`):

@@ -13,6 +13,42 @@ const envSchema = z
     FRONTEND_URL: z.string().url(),
     FREE_SHIPPING_THRESHOLD_CENTS: z.coerce.number().int().positive().default(5000),
     FLAT_SHIPPING_CENTS: z.coerce.number().int().nonnegative().default(599),
+    CANADA_POST_API_KEY: z.string().optional(),
+    CANADA_POST_CUSTOMER_NUMBER: z.string().optional(),
+    CANADA_POST_USERNAME: z.string().optional(),
+    CANADA_POST_CONTRACT_ID: z.string().optional(),
+    CANADA_POST_USE_TEST: z
+      .any()
+      .optional()
+      .transform((v) => {
+        if (v === undefined || v === '') return true;
+        if (typeof v === 'boolean') return v;
+        const s = String(v).toLowerCase();
+        return s !== 'false' && s !== '0';
+      }),
+    SHIP_FROM_POSTAL_CODE: z
+      .string()
+      .optional()
+      .superRefine((val, ctx) => {
+        if (val === undefined || val.trim() === '') return;
+        const c = val.replace(/\s/g, '').toUpperCase();
+        if (!/^[A-Z]\d[A-Z]\d[A-Z]\d$/.test(c)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'SHIP_FROM_POSTAL_CODE must be a valid Canadian postal code',
+            path: [],
+          });
+        }
+      })
+      .transform((s) => {
+        if (s === undefined || s.trim() === '') return undefined;
+        return s.replace(/\s/g, '').toUpperCase();
+      }),
+    SHIPPING_QUOTE_TIMEOUT_MS: z.coerce.number().int().positive().default(4000),
+    DEFAULT_PACKAGE_WEIGHT_GRAMS: z.coerce.number().int().positive().default(500),
+    DEFAULT_PACKAGE_L_CM: z.coerce.number().int().positive().default(25),
+    DEFAULT_PACKAGE_W_CM: z.coerce.number().int().positive().default(20),
+    DEFAULT_PACKAGE_H_CM: z.coerce.number().int().positive().default(10),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
     CRON_BEARER_TOKEN: z.string().min(32),
