@@ -8,6 +8,7 @@ import * as discountService from '../services/discountService.js';
 import { StripeCouponRejectedError } from '../services/discountService.js';
 import * as subscriptionService from '../services/subscriptionService.js';
 import * as fulfillmentService from '../services/fulfillmentService.js';
+import * as productService from '../services/productService.js';
 import type { Variables } from '../types/hono.js';
 import { adminAnalyticsRouter } from './adminDashboard.js';
 import { adminCustomersRouter } from './adminCustomers.js';
@@ -181,6 +182,37 @@ router.get('/discounts', zValidator('query', listDiscountsQuerySchema), async (c
 const adminProductIdParamSchema = z.object({
   id: z.string().regex(/^c[a-z0-9]{24}$/, 'Invalid product id'),
 });
+
+const packageMetadataSchema = z
+  .object({
+    weightGrams: z.number().int().min(1).max(50000).nullable().optional(),
+    lengthCm: z.number().int().min(1).max(200).nullable().optional(),
+    widthCm: z.number().int().min(1).max(200).nullable().optional(),
+    heightCm: z.number().int().min(1).max(200).nullable().optional(),
+    shipsSeparately: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (Object.keys(data).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one package field is required',
+        path: ['weightGrams'],
+      });
+    }
+  });
+
+router.patch(
+  '/products/:id/package',
+  zValidator('param', adminProductIdParamSchema),
+  zValidator('json', packageMetadataSchema),
+  async (c) => {
+    const { id } = c.req.valid('param');
+    const body = c.req.valid('json');
+    const product = await productService.updateProductPackageMetadata(id, body);
+    return c.json(product);
+  },
+);
 
 const patchProductSubscriptionSchema = z
   .object({

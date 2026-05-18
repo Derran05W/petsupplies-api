@@ -1,10 +1,14 @@
 import { HTTPException } from 'hono/http-exception';
 import Stripe from 'stripe';
 import type { SubscriptionInterval } from '@prisma/client';
+import { verifySelectionToken } from '../lib/shippingSelection.js';
 import { prisma } from '../lib/prisma.js';
 import { stripe } from '../lib/stripe.js';
+import type { CheckoutShippingSelection } from '../schemas/shipping.js';
 import { env } from '../types/env.js';
+import type { ShippingSelectionPayload } from '../types/shipping.js';
 import * as discountService from './discountService.js';
+import { cartFingerprintFromItems, resolveDestinationPostal } from './shippingService.js';
 
 const SUBSCRIBE_SAVE_COUPON_ID = 'subscribe-save-5pct';
 
@@ -225,8 +229,13 @@ export async function stripeUpdateSubscriptionItemsProrationNone(params: {
   });
 }
 
+function checkoutShippingStale(): HTTPException {
+  return new HTTPException(409, { message: 'SHIPPING_RATE_STALE' });
+}
+
 export async function createCheckoutSessionFromCart(
   userId: string,
+  shippingSelection?: CheckoutShippingSelection,
 ): Promise<{ url: string; orderId: string }> {
   const cart = await prisma.cart.findUnique({
     where: { userId },
@@ -284,9 +293,78 @@ export async function createCheckoutSessionFromCart(
   const useFreeShippingOption =
     qualifiesForThresholdFreeShip || discountPreview?.type === 'FREE_SHIPPING';
 
-  const shippingCents = useFreeShippingOption ? 0 : env.FLAT_SHIPPING_CENTS;
+  let verifiedSelection: ShippingSelectionPayload | null = null;
+
+  if (shippingSelection) {
+    const destPostal = await resolveDestinationPostal(userId, {
+      addressId: shippingSelection.addressId,
+      line1: shippingSelection.line1,
+      line2: shippingSelection.line2,
+      city: shippingSelection.city,
+      region: shippingSelection.region,
+      postalCode: shippingSelection.postalCode,
+      country: shippingSelection.country,
+    });
+
+    const verified = verifySelectionToken(
+      env.STRIPE_WEBHOOK_SECRET,
+      shippingSelection.selectionToken,
+    );
+    if (!verified.ok) {
+      throw checkoutShippingStale();
+    }
+    const { payload } = verified;
+    if (payload.userId !== userId) {
+      throw checkoutShippingStale();
+    }
+    if (payload.destPostalCode !== destPostal) {
+      throw checkoutShippingStale();
+    }
+    if (
+      payload.serviceCode !== shippingSelection.serviceCode ||
+      payload.amountCents !== shippingSelection.amountCents
+    ) {
+      throw checkoutShippingStale();
+    }
+
+    const fp = cartFingerprintFromItems(
+      items.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+    );
+    if (payload.cartFingerprint !== fp) {
+      throw checkoutShippingStale();
+    }
+
+    if (useFreeShippingOption && payload.amountCents !== 0) {
+      throw checkoutShippingStale();
+    }
+
+    verifiedSelection = payload;
+  }
+
+  const shippingCents = verifiedSelection
+    ? verifiedSelection.amountCents
+    : useFreeShippingOption
+      ? 0
+      : env.FLAT_SHIPPING_CENTS;
   const taxCents = 0;
   const totalCents = subtotalCents - discountCents + shippingCents;
+
+  const orderSnapshot =
+    verifiedSelection !== null
+      ? {
+          shipCarrier: verifiedSelection.carrier === 'CANADA_POST' ? 'Canada Post' : 'Flat rate',
+          shipServiceCode: verifiedSelection.serviceCode,
+          shipServiceName: verifiedSelection.serviceName,
+          shipEstimatedDeliveryDays: verifiedSelection.estimatedDeliveryDays ?? null,
+          shipQuoteSource: verifiedSelection.shipQuoteSource,
+        }
+      : {
+          shipCarrier: null,
+          shipServiceCode: null,
+          shipServiceName: null,
+          shipEstimatedDeliveryDays: null,
+          shipQuoteSource: null,
+        };
 
   const order = await prisma.$transaction(async (tx) => {
     const created = await tx.order.create({
@@ -302,6 +380,7 @@ export async function createCheckoutSessionFromCart(
         discountCode: discountPreview?.code ?? null,
         discountType: discountPreview?.type ?? null,
         discountValue: discountPreview?.value ?? null,
+        ...orderSnapshot,
         items: {
           create: items.map((i) => ({
             productId: i.product.id,
@@ -332,34 +411,61 @@ export async function createCheckoutSessionFromCart(
     },
   }));
 
-  const deliveryEstimate = {
-    minimum: { unit: 'business_day' as const, value: 5 },
-    maximum: { unit: 'business_day' as const, value: 7 },
-  };
+  const deliveryEstimate =
+    verifiedSelection?.estimatedDeliveryDays !== undefined
+      ? {
+          minimum: {
+            unit: 'business_day' as const,
+            value: verifiedSelection.estimatedDeliveryDays,
+          },
+          maximum: {
+            unit: 'business_day' as const,
+            value: Math.max(verifiedSelection.estimatedDeliveryDays + 2, 7),
+          },
+        }
+      : {
+          minimum: { unit: 'business_day' as const, value: 5 },
+          maximum: { unit: 'business_day' as const, value: 7 },
+        };
 
-  const shippingOptions = useFreeShippingOption
+  const shippingOptions = verifiedSelection
     ? [
         {
           shipping_rate_data: {
             type: 'fixed_amount' as const,
-            fixed_amount: { amount: 0, currency: 'cad' as const },
-            display_name: 'Free shipping',
+            fixed_amount: {
+              amount: verifiedSelection.amountCents,
+              currency: 'cad' as const,
+            },
+            display_name: verifiedSelection.serviceName,
             delivery_estimate: deliveryEstimate,
             tax_behavior: 'exclusive' as const,
           },
         },
       ]
-    : [
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount' as const,
-            fixed_amount: { amount: env.FLAT_SHIPPING_CENTS, currency: 'cad' as const },
-            display_name: 'Standard shipping',
-            delivery_estimate: deliveryEstimate,
-            tax_behavior: 'exclusive' as const,
+    : useFreeShippingOption
+      ? [
+          {
+            shipping_rate_data: {
+              type: 'fixed_amount' as const,
+              fixed_amount: { amount: 0, currency: 'cad' as const },
+              display_name: 'Free shipping',
+              delivery_estimate: deliveryEstimate,
+              tax_behavior: 'exclusive' as const,
+            },
           },
-        },
-      ];
+        ]
+      : [
+          {
+            shipping_rate_data: {
+              type: 'fixed_amount' as const,
+              fixed_amount: { amount: env.FLAT_SHIPPING_CENTS, currency: 'cad' as const },
+              display_name: 'Standard shipping',
+              delivery_estimate: deliveryEstimate,
+              tax_behavior: 'exclusive' as const,
+            },
+          },
+        ];
 
   const metadata: Record<string, string> = { orderId: order.id };
   if (discountPreview?.discountId) {

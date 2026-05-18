@@ -1,4 +1,5 @@
 import { ProductCategory, Prisma } from '@prisma/client';
+import { HTTPException } from 'hono/http-exception';
 import { prisma } from '../lib/prisma.js';
 
 export type ProductSortOption =
@@ -125,6 +126,36 @@ export async function getBySlug(slug: string) {
   if (!product || !product.active) return null;
 
   return withInStock(product);
+}
+
+export async function updateProductPackageMetadata(
+  id: string,
+  patch: {
+    weightGrams?: number | null;
+    lengthCm?: number | null;
+    widthCm?: number | null;
+    heightCm?: number | null;
+    shipsSeparately?: boolean;
+  },
+) {
+  try {
+    return await prisma.product.update({
+      where: { id },
+      data: {
+        ...(patch.weightGrams !== undefined ? { weightGrams: patch.weightGrams } : {}),
+        ...(patch.lengthCm !== undefined ? { lengthCm: patch.lengthCm } : {}),
+        ...(patch.widthCm !== undefined ? { widthCm: patch.widthCm } : {}),
+        ...(patch.heightCm !== undefined ? { heightCm: patch.heightCm } : {}),
+        ...(patch.shipsSeparately !== undefined ? { shipsSeparately: patch.shipsSeparately } : {}),
+      },
+      include: { images: { orderBy: { sortOrder: 'asc' } } },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      throw new HTTPException(404, { message: 'Product not found' });
+    }
+    throw e;
+  }
 }
 
 function withInStock<T extends { stock: number }>(product: T) {

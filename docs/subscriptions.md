@@ -6,16 +6,16 @@ Authenticated customers can start Stripe-hosted **Checkout** sessions in **subsc
 
 ## API surface
 
-| Method | Path | Auth | Purpose |
-| --- | --- | --- | --- |
-| `POST` | `/subscriptions` | Yes | Start Subscribe & Save Checkout; returns `{ url, checkoutSessionId }`. |
-| `GET` | `/users/me/subscriptions` | Yes | Paginated list (`page`, `limit`, optional `status`). Default sort `createdAt desc`. |
-| `GET` | `/users/me/subscriptions/:id` | Yes | Single subscription (`:id` must match `^c[a-z0-9]{24}$`). |
-| `PATCH` | `/users/me/subscriptions/:id` | Yes | Partial `{ quantity?, interval?, petId? }`. Empty body → `400 EMPTY_PATCH`. |
-| `POST` | `/users/me/subscriptions/:id/pause` | Yes | Stripe `pause_collection: { behavior: 'void' }`. |
-| `POST` | `/users/me/subscriptions/:id/resume` | Yes | Clears `pause_collection`. |
-| `DELETE` | `/users/me/subscriptions/:id` | Yes | Schedules cancellation at period end (`cancel_at_period_end: true`). Returns **200** with the subscription body (not `204`). |
-| `PATCH` | `/admin/products/:id/subscription` | Admin | Body **`{ subscriptionEligible: true }` only**. Idempotent pre-creation of four recurring Stripe Prices + `ProductSubscriptionPrice` rows. `{ subscriptionEligible: false }` → `400 NOT_SUPPORTED` (deferred). |
+| Method   | Path                                 | Auth  | Purpose                                                                                                                                                                                                        |
+| -------- | ------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/subscriptions`                     | Yes   | Start Subscribe & Save Checkout; returns `{ url, checkoutSessionId }`.                                                                                                                                         |
+| `GET`    | `/users/me/subscriptions`            | Yes   | Paginated list (`page`, `limit`, optional `status`). Default sort `createdAt desc`.                                                                                                                            |
+| `GET`    | `/users/me/subscriptions/:id`        | Yes   | Single subscription (`:id` must match `^c[a-z0-9]{24}$`).                                                                                                                                                      |
+| `PATCH`  | `/users/me/subscriptions/:id`        | Yes   | Partial `{ quantity?, interval?, petId? }`. Empty body → `400 EMPTY_PATCH`.                                                                                                                                    |
+| `POST`   | `/users/me/subscriptions/:id/pause`  | Yes   | Stripe `pause_collection: { behavior: 'void' }`.                                                                                                                                                               |
+| `POST`   | `/users/me/subscriptions/:id/resume` | Yes   | Clears `pause_collection`.                                                                                                                                                                                     |
+| `DELETE` | `/users/me/subscriptions/:id`        | Yes   | Schedules cancellation at period end (`cancel_at_period_end: true`). Returns **200** with the subscription body (not `204`).                                                                                   |
+| `PATCH`  | `/admin/products/:id/subscription`   | Admin | Body **`{ subscriptionEligible: true }` only**. Idempotent pre-creation of four recurring Stripe Prices + `ProductSubscriptionPrice` rows. `{ subscriptionEligible: false }` → `400 NOT_SUPPORTED` (deferred). |
 
 `userId` is never accepted from clients; it always comes from the JWT `sub`.
 
@@ -34,7 +34,7 @@ Authenticated customers can start Stripe-hosted **Checkout** sessions in **subsc
 
 ## Stripe model
 
-- **Checkout**: `mode: 'subscription'`, recurring **Price** per cart line, shared coupon **`subscribe-save-5pct`** (5% forever), `shipping_address_collection`, shipping options mirroring Phase 6 threshold logic for the **first** Checkout invoice.
+- **Checkout**: `mode: 'subscription'`, recurring **Price** per cart line, shared coupon **`subscribe-save-5pct`** (5% forever), `shipping_address_collection`, shipping options mirroring Phase 6 threshold logic for the **first** Checkout invoice. Phase 24 does not add live-rate selection to subscription Checkout (same threshold/flat options as before).
 - **Customer reuse**: `User.stripeCustomerId` is created lazily (`stripe.customers.create` with `metadata: { userId }`) and reused on later Checkout sessions (cart or subscription).
 - **Prices**: Admin eligibility (`PATCH /admin/products/:id/subscription`) pre-creates **four** recurring Prices (2 / 4 / 8 / 12 week intervals, CAD, unit amount = catalog `Product.price`). Mapped in `ProductSubscriptionPrice` (`@@unique([productId, interval])`, `stripePriceId @unique`).
 - **Webhook events** (same `/webhooks/stripe` endpoint): extend handlers for `checkout.session.completed` (**subscription** branch), `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`. Existing payment Checkout behavior is unchanged.
@@ -53,7 +53,7 @@ Authenticated customers can start Stripe-hosted **Checkout** sessions in **subsc
 ## Orders from renewals (`invoice.paid`)
 
 - One **`Order`** per Stripe invoice id, idempotent on **`Order.subscriptionInvoiceId`** (`@unique`).
-- **Shipping / tax snapshot**: renewal orders use **`shippingCents = 0`** and **`taxCents = 0`** (renewals are modeled as free shipping; first Checkout shipment still follows Phase 6 shipping rules).
+- **Shipping / tax snapshot**: renewal orders use **`shippingCents = 0`** and **`taxCents = 0`** (renewals are modeled as free shipping; first Checkout shipment still follows Phase 6 shipping rules). **Phase 24** does not change this — Canada Post is **not** used on `invoice.paid`.
 - **Totals**: Prefer Stripe **`amount_paid`** when present; derive **`discountCents`** from catalog subtotal vs paid amount; fallback uses `discountPercent` on the local subscription row.
 - **Stock**: decrement **only** inside `invoice.paid` handling using **`product.updateMany({ where: { id, stock: { gte: quantity } }, data: { stock: { decrement: quantity } } })`** in a **`prisma.$transaction`**. If **`count === 0`**, the order is **`CANCELLED`**, logs **`[subscription_oversold_incident]`** (ids + quantity only), sends **`subscriptionPaymentIssue`** email, and **does not** cancel the Stripe subscription (Stripe retries / next cycle can recover).
 
@@ -75,12 +75,12 @@ Logged with **internal ids + op + event type** only; sends **`subscriptionPaymen
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
+| Symptom                                       | Check                                                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Checkout succeeds but no local `Subscription` | Webhook delivery / signing secret; `checkout.session.completed` registered; logs for subscription sync skip reasons. |
-| Duplicate `invoice.paid` deliveries | Should **not** create a second order — rely on `subscriptionInvoiceId` uniqueness + handler idempotency. |
-| Missing recurring Prices | Run admin **`PATCH .../subscription`** again (idempotent); verify four `ProductSubscriptionPrice` rows. |
-| Orphan Stripe Prices/Coupons | Dashboard cleanup if DB write failed mid-flight (same pattern as Phase 12 orphan coupons). |
+| Duplicate `invoice.paid` deliveries           | Should **not** create a second order — rely on `subscriptionInvoiceId` uniqueness + handler idempotency.             |
+| Missing recurring Prices                      | Run admin **`PATCH .../subscription`** again (idempotent); verify four `ProductSubscriptionPrice` rows.              |
+| Orphan Stripe Prices/Coupons                  | Dashboard cleanup if DB write failed mid-flight (same pattern as Phase 12 orphan coupons).                           |
 
 ---
 

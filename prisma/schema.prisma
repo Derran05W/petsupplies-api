@@ -54,6 +54,12 @@ model Product {
   stockAlertEpisode Int          @default(0)
   stockAlerts       StockAlert[]
 
+  weightGrams      Int?
+  lengthCm         Int?
+  widthCm          Int?
+  heightCm         Int?
+  shipsSeparately  Boolean @default(false)
+
   @@index([category, active])
 }
 
@@ -230,6 +236,11 @@ model Order {
   shipRegion          String?
   shipPostalCode      String?
   shipCountry         String?
+  shipCarrier         String?
+  shipServiceCode     String?
+  shipServiceName     String?
+  shipEstimatedDeliveryDays Int?
+  shipQuoteSource     String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
   items               OrderItem[]

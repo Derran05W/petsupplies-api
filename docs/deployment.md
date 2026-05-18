@@ -85,29 +85,33 @@ Transactional email uses Resend (`resend`). Set these **per Railway service** (s
 - `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents).
 - `FLAT_SHIPPING_CENTS` — default `599` (cents).
 
-### Canada Post (Phase 24 — planned; live rates + fallback)
+### Canada Post (Phase 24 — live rates + fallback)
 
-Phase 24 adds **Canada Post** rating alongside the existing flat / free-shipping thresholds. **Checkout must remain usable** when credentials are missing or the carrier API fails: the API falls back to current `FLAT_SHIPPING_CENTS` / threshold logic (see `.planning/plan.md` § Phase 24).
+Phase 24 adds **Canada Post** rating alongside existing flat / free-shipping thresholds. **Checkout remains usable** when credentials are missing or the carrier API fails: the API falls back to `FLAT_SHIPPING_CENTS` / threshold behavior.
 
-**Set on each Railway service when implementing Phase 24** (exact names should match `src/types/env.ts` after implementation; reserve these in 1Password / Railway until then):
+**Env vars** (all optional; omit any of the first three to force fallback-only):
 
-| Variable                                         | Purpose                                                                                                         |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `CANADA_POST_CUSTOMER_NUMBER`                    | Canada Post customer number (developer / production profile).                                                   |
-| `CANADA_POST_API_KEY`                            | REST credential from [Canada Post Developers](https://www.canadapost-postescanada.ca/information/app/drc/home). |
-| `CANADA_POST_CONTRACT_ID`                        | Optional — negotiated rates / contract shipping when applicable.                                                |
-| `CANADA_POST_PLATFORM_ID`                        | Optional — required only if the chosen API surface mandates a third-party platform id.                          |
-| `CANADA_POST_USE_TEST` or `CANADA_POST_BASE_URL` | Sandbox vs production base URL (pick one strategy in code; document the chosen flag here when implemented).     |
+| Variable                                                                 | Purpose                                                                                               |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `CANADA_POST_API_KEY`                                                    | Developer / production API key (password for Basic auth).                                             |
+| `CANADA_POST_CUSTOMER_NUMBER`                                            | Canada Post customer number.                                                                          |
+| `CANADA_POST_USERNAME`                                                   | Basic auth username when it differs from customer number (defaults to `CANADA_POST_CUSTOMER_NUMBER`). |
+| `CANADA_POST_CONTRACT_ID`                                                | Optional contract id for negotiated rates.                                                            |
+| `CANADA_POST_USE_TEST`                                                   | If `true` (default), uses Canada Post CT endpoint; set `false` for production SOA host.               |
+| `SHIP_FROM_POSTAL_CODE`                                                  | Warehouse origin (Canadian postal, validated when set).                                               |
+| `SHIPPING_QUOTE_TIMEOUT_MS`                                              | HTTP timeout for rating calls (default `4000`).                                                       |
+| `DEFAULT_PACKAGE_WEIGHT_GRAMS`                                           | Fallback per-line weight when `Product.weightGrams` is null (default `500`).                          |
+| `DEFAULT_PACKAGE_L_CM` / `DEFAULT_PACKAGE_W_CM` / `DEFAULT_PACKAGE_H_CM` | Fallback dimensions in cm (defaults `25` / `20` / `10`).                                              |
+
+See [`docs/shipping.md`](./shipping.md) for API flow and admin package metadata.
 
 Operational checklist (staging, then prod):
 
-1. Create **separate** developer keys for staging vs prod where Canada Post allows it; never reuse prod keys on staging.
-2. Confirm **origin postal code** (warehouse) is configurable (env such as `SHIP_FROM_POSTAL_CODE` — final name TBD in implementation) and matches a valid ship-from on the contract.
-3. **Timeouts:** keep strict HTTP timeouts so checkout never blocks on a hung carrier response.
-4. **Smoke:** with valid keys, quote a known-good destination + cart; then **unset** `CANADA_POST_API_KEY` and confirm checkout still completes with flat rate.
-5. Redeploy after env changes.
+1. Separate developer credentials per environment where possible.
+2. Set `SHIP_FROM_POSTAL_CODE` to a valid ship-from for the account.
+3. **Smoke:** quote with real keys; then **unset** `CANADA_POST_API_KEY` and confirm checkout still completes with flat rate.
 
-Webhook / Stripe event list is unchanged unless Phase 24 introduces new Stripe objects (document delta in this section when merging).
+Webhook / Stripe event list is unchanged for Phase 24.
 
 ---
 
@@ -228,8 +232,8 @@ After Phase 24 merges:
 
 1. Set Canada Post env vars on **staging** (see the **Canada Post** subsection under [Per-service env vars](#per-service-env-vars)).
 2. Ensure at least one product has **`weightGrams`** (or equivalent) populated; confirm another product **without** weight still allows checkout via **fallback** pricing.
-3. Call the shipping **quote** endpoint with a valid saved `addressId` (or inline address per final API); assert returned options include **amountCents** + stable **selection token** (or documented selection binding).
-4. Complete checkout with a **live-rate** selection; confirm Stripe Checkout totals match the `Order` snapshot fields for shipping.
+3. `POST /shipping/quote` with a valid saved `addressId` or inline CA address; assert returned options include **amountCents** and **selectionToken**.
+4. `POST /checkout/session` with `shippingSelection` (token + `serviceCode` + `amountCents` + same address binding); confirm Stripe Checkout shows one shipping option matching the selection.
 5. Simulate provider outage (wrong key or firewall) and confirm checkout still succeeds with **flat / free** shipping and logs contain **no** raw PII dumps.
 
 ---

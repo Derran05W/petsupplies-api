@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HTTPException } from 'hono/http-exception';
 
 vi.mock('../../src/lib/prisma.js', () => ({
@@ -45,8 +45,10 @@ vi.mock('../../src/services/discountService.js', () => ({
 }));
 
 import * as discountService from '../../src/services/discountService.js';
+import { encodeSelectionToken } from '../../src/lib/shippingSelection.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { stripe } from '../../src/lib/stripe.js';
+import * as shippingService from '../../src/services/shippingService.js';
 import * as stripeService from '../../src/services/stripeService.js';
 
 const mockProduct = {
@@ -454,6 +456,106 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
         expect(e).toBeInstanceOf(HTTPException);
         expect((e as HTTPException).status).toBe(500);
       }
+    });
+  });
+
+  describe('shipping selection', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('applies selected live rate when token validates', async () => {
+      vi.spyOn(shippingService, 'resolveDestinationPostal').mockResolvedValue('K1A0B1');
+      vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
+      const destPostal = 'K1A0B1';
+      const fp = shippingService.cartFingerprintFromItems([{ productId: 'prod-1', quantity: 2 }]);
+      const token = encodeSelectionToken(process.env.STRIPE_WEBHOOK_SECRET!, {
+        expiresAtMs: Date.now() + 120_000,
+        userId: 'user-1',
+        cartFingerprint: fp,
+        destPostalCode: destPostal,
+        serviceCode: 'DOM.EP',
+        serviceName: 'Expedited Parcel',
+        amountCents: 1299,
+        carrier: 'CANADA_POST',
+        shipQuoteSource: 'canada_post',
+      });
+
+      const txMock = makeTxMock({
+        subtotalCents: 4000,
+        shippingCents: 1299,
+        taxCents: 0,
+        discountCents: 0,
+        totalCents: 5299,
+      });
+      vi.mocked(prisma.$transaction).mockImplementation(async (cb: unknown) =>
+        (cb as (tx: unknown) => unknown)(txMock),
+      );
+      vi.mocked(stripe.checkout.sessions.create).mockResolvedValue(mockSession as never);
+      vi.mocked(prisma.order.update).mockResolvedValue(mockOrder as never);
+
+      await stripeService.createCheckoutSessionFromCart('user-1', {
+        selectionToken: token,
+        serviceCode: 'DOM.EP',
+        amountCents: 1299,
+        line1: '1 St',
+        city: 'Ottawa',
+        region: 'ON',
+        postalCode: 'K1A 0B1',
+        country: 'CA',
+      });
+
+      expect(txMock.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            shippingCents: 1299,
+            shipServiceCode: 'DOM.EP',
+            shipQuoteSource: 'canada_post',
+          }),
+        }),
+      );
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shipping_options: [
+            expect.objectContaining({
+              shipping_rate_data: expect.objectContaining({
+                display_name: 'Expedited Parcel',
+                fixed_amount: { amount: 1299, currency: 'cad' },
+              }),
+            }),
+          ],
+        }),
+      );
+    });
+
+    it('throws 409 when shipping token expired', async () => {
+      vi.spyOn(shippingService, 'resolveDestinationPostal').mockResolvedValue('K1A0B1');
+      vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
+      const fp = shippingService.cartFingerprintFromItems([{ productId: 'prod-1', quantity: 2 }]);
+      const token = encodeSelectionToken(process.env.STRIPE_WEBHOOK_SECRET!, {
+        expiresAtMs: Date.now() - 1000,
+        userId: 'user-1',
+        cartFingerprint: fp,
+        destPostalCode: 'K1A0B1',
+        serviceCode: 'DOM.EP',
+        serviceName: 'X',
+        amountCents: 100,
+        carrier: 'CANADA_POST',
+        shipQuoteSource: 'canada_post',
+      });
+
+      await expect(
+        stripeService.createCheckoutSessionFromCart('user-1', {
+          selectionToken: token,
+          serviceCode: 'DOM.EP',
+          amountCents: 100,
+          line1: '1 St',
+          city: 'Ottawa',
+          region: 'ON',
+          postalCode: 'K1A 0B1',
+          country: 'CA',
+        }),
+      ).rejects.toMatchObject({ status: 409 });
     });
   });
 });

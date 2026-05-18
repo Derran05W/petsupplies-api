@@ -62,14 +62,18 @@ describe('POST /checkout/session', () => {
     const app = createApp();
     const res = await app.request('/checkout/session', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
     });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as typeof mockCheckoutResult;
     expect(body.url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
     expect(body.orderId).toBe('order-1');
-    expect(stripeService.createCheckoutSessionFromCart).toHaveBeenCalledWith('user-1');
+    expect(stripeService.createCheckoutSessionFromCart).toHaveBeenCalledWith('user-1', undefined);
   });
 
   it('returns 400 when service throws HTTPException 400 (empty cart)', async () => {
@@ -81,7 +85,11 @@ describe('POST /checkout/session', () => {
     const app = createApp();
     const res = await app.request('/checkout/session', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
     });
 
     expect(res.status).toBe(400);
@@ -96,7 +104,11 @@ describe('POST /checkout/session', () => {
     const app = createApp();
     const res = await app.request('/checkout/session', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
     });
 
     expect(res.status).toBe(409);

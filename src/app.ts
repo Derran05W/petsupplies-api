@@ -15,6 +15,7 @@ import { addressesRouter } from './routes/addresses.js';
 import { stockAlertsRouter } from './routes/stockAlerts.js';
 import { wishlistRouter } from './routes/wishlist.js';
 import { petsRouter } from './routes/pets.js';
+import { shippingRouter } from './routes/shipping.js';
 import { jobsRouter } from './routes/jobs.js';
 import { meSubscriptionsRouter, subscriptionCheckoutRouter } from './routes/subscriptions.js';
 import type { Variables } from './types/hono.js';
@@ -35,6 +36,7 @@ export function createApp() {
   app.route('/products', productsRouter);
   app.route('/cart', cartRouter);
   app.route('/checkout', checkoutRouter);
+  app.route('/shipping', shippingRouter);
   app.route('/subscriptions', subscriptionCheckoutRouter);
   app.route('/orders', ordersRouter);
   app.route('/reviews', reviewsRouter);
