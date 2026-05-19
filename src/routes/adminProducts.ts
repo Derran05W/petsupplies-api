@@ -102,16 +102,16 @@ router.patch(
   zValidator('param', imageIdParamSchema),
   zValidator('json', updateImageSchema),
   async (c) => {
-    const { imageId } = c.req.valid('param');
+    const { id, imageId } = c.req.valid('param');
     const body = c.req.valid('json');
-    const image = await adminProductService.updateProductImage(imageId, body);
+    const image = await adminProductService.updateProductImage(imageId, body, id);
     return c.json(image);
   },
 );
 
 router.delete('/:id/images/:imageId', zValidator('param', imageIdParamSchema), async (c) => {
-  const { imageId } = c.req.valid('param');
-  await adminProductService.deleteProductImage(imageId);
+  const { id, imageId } = c.req.valid('param');
+  await adminProductService.deleteProductImage(imageId, id);
   return c.body(null, 204);
 });
 

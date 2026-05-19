@@ -56,13 +56,15 @@ const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
 
 function slugify(name: string): string {
-  return name
+  const slug = name
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
     .slice(0, 200);
+  return slug || 'product';
 }
 
 async function ensureUniqueSlug(base: string, excludeId?: string): Promise<string> {
@@ -198,7 +200,8 @@ export async function updateProduct(id: string, patch: UpdateProductInput) {
       throw new HTTPException(404, { message: 'Product not found' });
     }
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      throw new HTTPException(409, { message: `Slug "${patch.slug}" already exists` });
+      const label = patch.slug ?? '(unknown)';
+      throw new HTTPException(409, { message: `Slug "${label}" already exists` });
     }
     throw e;
   }
@@ -273,13 +276,22 @@ export async function addProductImage(productId: string, input: AddProductImageI
   });
 }
 
-export async function updateProductImage(imageId: string, patch: UpdateProductImageInput) {
+export async function updateProductImage(
+  imageId: string,
+  patch: UpdateProductImageInput,
+  expectedProductId?: string,
+) {
   const existing = await prisma.productImage.findUnique({
     where: { id: imageId },
     select: { id: true, productId: true },
   });
   if (!existing) {
     throw new HTTPException(404, { message: 'Image not found' });
+  }
+  if (expectedProductId !== undefined && existing.productId !== expectedProductId) {
+    throw new HTTPException(404, {
+      message: 'Image not found on this product',
+    });
   }
 
   const data: Prisma.ProductImageUpdateInput = {};
@@ -306,7 +318,22 @@ export async function updateProductImage(imageId: string, patch: UpdateProductIm
   });
 }
 
-export async function deleteProductImage(imageId: string): Promise<void> {
+export async function deleteProductImage(
+  imageId: string,
+  expectedProductId?: string,
+): Promise<void> {
+  if (expectedProductId !== undefined) {
+    const existing = await prisma.productImage.findUnique({
+      where: { id: imageId },
+      select: { productId: true },
+    });
+    if (!existing) {
+      throw new HTTPException(404, { message: 'Image not found' });
+    }
+    if (existing.productId !== expectedProductId) {
+      throw new HTTPException(404, { message: 'Image not found on this product' });
+    }
+  }
   try {
     await prisma.productImage.delete({ where: { id: imageId } });
   } catch (e) {
@@ -326,12 +353,21 @@ export async function reorderProductImages(productId: string, items: ReorderItem
     throw new HTTPException(404, { message: 'Product not found' });
   }
 
-  await prisma.$transaction(
-    items.map((item) =>
-      prisma.productImage.update({
-        where: { id: item.id, productId },
-        data: { sortOrder: item.sortOrder },
-      }),
-    ),
-  );
+  try {
+    await prisma.$transaction(
+      items.map((item) =>
+        prisma.productImage.update({
+          where: { id: item.id, productId },
+          data: { sortOrder: item.sortOrder },
+        }),
+      ),
+    );
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      throw new HTTPException(404, {
+        message: 'One or more images not found on this product',
+      });
+    }
+    throw e;
+  }
 }
