@@ -13,6 +13,7 @@ import type { Variables } from '../types/hono.js';
 import { adminAnalyticsRouter } from './adminDashboard.js';
 import { adminCustomersRouter } from './adminCustomers.js';
 import { adminFulfillmentRouter } from './adminFulfillment.js';
+import { adminProductsRouter } from './adminProducts.js';
 
 const router = new Hono<{ Variables: Variables }>();
 
@@ -21,6 +22,7 @@ router.use('*', auth, adminOnly);
 router.route('/analytics', adminAnalyticsRouter);
 router.route('/customers', adminCustomersRouter);
 router.route('/fulfillment', adminFulfillmentRouter);
+router.route('/products', adminProductsRouter);
 
 const adminUpdateTrackingSchema = z.object({
   trackingNumber: z.string().min(1),

@@ -290,6 +290,27 @@ Target: ≤ 500MB. We can revisit a `pnpm deploy --prod` prune stage if we drift
 
 ---
 
+## Phase 26 — Admin Product Management: Supabase Storage setup
+
+One-time step per environment before admin product image uploads will work:
+
+1. Open the Supabase dashboard for the environment.
+2. Go to **Storage → Buckets → New bucket**.
+3. Name it `product-images` (or the value of `SUPABASE_STORAGE_BUCKET`).
+4. Enable **Public bucket** (product images are publicly readable by the storefront).
+5. Leave the default RLS policy in place (write is restricted to service role).
+
+Set the env vars in Railway:
+
+| Variable                           | Value            |
+| ---------------------------------- | ---------------- |
+| `SUPABASE_STORAGE_BUCKET`          | `product-images` |
+| `SUPABASE_PRODUCT_IMAGE_MAX_BYTES` | `5000000`        |
+
+See [`docs/admin-products.md`](./admin-products.md) for the full endpoint reference and image upload flow.
+
+---
+
 ## Operational notes
 
 - **Phase 21 extended admin dashboard** (`GET /admin/analytics/*`, `GET/PATCH`-style fulfillment helpers): **no new env vars** vs Phase 17. Inventory and caveats live in [`docs/admin-dashboard.md`](./admin-dashboard.md).

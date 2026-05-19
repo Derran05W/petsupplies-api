@@ -60,7 +60,10 @@ model Product {
   heightCm         Int?
   shipsSeparately  Boolean @default(false)
 
+  tags             String[] @default([])
+
   @@index([category, active])
+  @@index([tags], type: Gin)
 }
 
 model WishlistItem {
