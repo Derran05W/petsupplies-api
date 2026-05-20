@@ -6,7 +6,6 @@ import { env } from '../types/env.js';
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 function safeFilename(name: string): string {
-  // Extract extension before sanitising so dots within path segments are stripped
   const lastDot = name.lastIndexOf('.');
   const ext =
     lastDot > 0
@@ -26,12 +25,12 @@ function safeFilename(name: string): string {
   return `${safeBase}${ext}`;
 }
 
-export async function createProductImageUploadUrl({
-  filename,
-  contentType,
-}: {
+async function createSignedUploadUrl(params: {
   filename: string;
   contentType: string;
+  bucket: string;
+  objectKeyPrefix: string;
+  maxBytes: number;
 }): Promise<{
   uploadUrl: string;
   token: string;
@@ -39,16 +38,17 @@ export async function createProductImageUploadUrl({
   publicUrl: string;
   maxBytes: number;
 }> {
-  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+  if (!ALLOWED_CONTENT_TYPES.has(params.contentType)) {
     throw new HTTPException(400, {
-      message: `Unsupported content type "${contentType}". Allowed: jpeg, png, webp, gif`,
+      message: `Unsupported content type "${params.contentType}". Allowed: jpeg, png, webp, gif`,
     });
   }
 
-  const objectKey = `products/${randomUUID()}/${randomUUID()}-${safeFilename(filename)}`;
-  const bucket = env.SUPABASE_STORAGE_BUCKET;
+  const objectKey = `${params.objectKeyPrefix}/${randomUUID()}/${randomUUID()}-${safeFilename(params.filename)}`;
 
-  const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUploadUrl(objectKey);
+  const { data, error } = await supabaseAdmin.storage
+    .from(params.bucket)
+    .createSignedUploadUrl(objectKey);
 
   if (error || !data) {
     throw new HTTPException(502, {
@@ -56,13 +56,45 @@ export async function createProductImageUploadUrl({
     });
   }
 
-  const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${bucket}/${objectKey}`;
+  const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/${params.bucket}/${objectKey}`;
 
   return {
     uploadUrl: data.signedUrl,
     token: data.token,
     objectKey,
     publicUrl,
-    maxBytes: env.SUPABASE_PRODUCT_IMAGE_MAX_BYTES,
+    maxBytes: params.maxBytes,
   };
+}
+
+export async function createProductImageUploadUrl({
+  filename,
+  contentType,
+}: {
+  filename: string;
+  contentType: string;
+}) {
+  return createSignedUploadUrl({
+    filename,
+    contentType,
+    bucket: env.SUPABASE_STORAGE_BUCKET,
+    objectKeyPrefix: 'products',
+    maxBytes: env.SUPABASE_PRODUCT_IMAGE_MAX_BYTES,
+  });
+}
+
+export async function createSiteAssetUploadUrl({
+  filename,
+  contentType,
+}: {
+  filename: string;
+  contentType: string;
+}) {
+  return createSignedUploadUrl({
+    filename,
+    contentType,
+    bucket: env.SUPABASE_SITE_ASSETS_BUCKET,
+    objectKeyPrefix: 'site',
+    maxBytes: env.SUPABASE_SITE_ASSET_MAX_BYTES,
+  });
 }

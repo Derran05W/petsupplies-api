@@ -8,6 +8,7 @@ import type { CheckoutShippingSelection } from '../schemas/shipping.js';
 import { env } from '../types/env.js';
 import type { ShippingSelectionPayload } from '../types/shipping.js';
 import * as discountService from './discountService.js';
+import { getShippingCentsConfig } from './siteSettingsService.js';
 import { cartFingerprintFromItems, resolveDestinationPostal } from './shippingService.js';
 
 const SUBSCRIBE_SAVE_COUPON_ID = 'subscribe-save-5pct';
@@ -98,7 +99,8 @@ export async function createSubscriptionCheckoutSession(params: {
     maximum: { unit: 'business_day' as const, value: 7 },
   };
 
-  const useFreeShippingOption = params.subtotalCents >= env.FREE_SHIPPING_THRESHOLD_CENTS;
+  const { freeShippingThresholdCents, flatShippingCents } = await getShippingCentsConfig();
+  const useFreeShippingOption = params.subtotalCents >= freeShippingThresholdCents;
 
   const shippingOptions = useFreeShippingOption
     ? [
@@ -116,7 +118,7 @@ export async function createSubscriptionCheckoutSession(params: {
         {
           shipping_rate_data: {
             type: 'fixed_amount' as const,
-            fixed_amount: { amount: env.FLAT_SHIPPING_CENTS, currency: 'cad' as const },
+            fixed_amount: { amount: flatShippingCents, currency: 'cad' as const },
             display_name: 'Standard shipping',
             delivery_estimate: deliveryEstimate,
             tax_behavior: 'exclusive' as const,
@@ -289,7 +291,8 @@ export async function createCheckoutSessionFromCart(
 
   const discountCents = discountPreview ? discountPreview.discountCents : 0;
 
-  const qualifiesForThresholdFreeShip = subtotalCents >= env.FREE_SHIPPING_THRESHOLD_CENTS;
+  const { freeShippingThresholdCents, flatShippingCents } = await getShippingCentsConfig();
+  const qualifiesForThresholdFreeShip = subtotalCents >= freeShippingThresholdCents;
   const useFreeShippingOption =
     qualifiesForThresholdFreeShip || discountPreview?.type === 'FREE_SHIPPING';
 
@@ -345,7 +348,7 @@ export async function createCheckoutSessionFromCart(
     ? verifiedSelection.amountCents
     : useFreeShippingOption
       ? 0
-      : env.FLAT_SHIPPING_CENTS;
+      : flatShippingCents;
   const taxCents = 0;
   const totalCents = subtotalCents - discountCents + shippingCents;
 
@@ -459,7 +462,7 @@ export async function createCheckoutSessionFromCart(
           {
             shipping_rate_data: {
               type: 'fixed_amount' as const,
-              fixed_amount: { amount: env.FLAT_SHIPPING_CENTS, currency: 'cad' as const },
+              fixed_amount: { amount: flatShippingCents, currency: 'cad' as const },
               display_name: 'Standard shipping',
               delivery_estimate: deliveryEstimate,
               tax_behavior: 'exclusive' as const,

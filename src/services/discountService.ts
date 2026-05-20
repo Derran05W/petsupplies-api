@@ -3,7 +3,7 @@ import type Stripe from 'stripe';
 import { HTTPException } from 'hono/http-exception';
 import { prisma } from '../lib/prisma.js';
 import { stripe } from '../lib/stripe.js';
-import { env } from '../types/env.js';
+import { getShippingCentsConfig } from './siteSettingsService.js';
 
 const CODE_REGEX = /^[A-Z0-9_-]{3,32}$/;
 
@@ -42,6 +42,15 @@ export interface CreateDiscountInput {
   active?: boolean;
 }
 
+export interface UpdateDiscountInput {
+  value?: number;
+  minCartCents?: number | null;
+  maxRedemptions?: number | null;
+  validFrom?: Date | null;
+  validUntil?: Date | null;
+  active?: boolean;
+}
+
 /** Normalize for lookup/storage; returns null if INVALID_FORMAT (caller maps reason). */
 export function normalizeCode(raw: string): string | null {
   const trimmed = raw.trim().toUpperCase();
@@ -70,11 +79,12 @@ function nowMs(): number {
   return Date.now();
 }
 
-function toPreviewRow(row: Discount, cartSubtotalCents: number): DiscountPreview {
+async function toPreviewRow(row: Discount, cartSubtotalCents: number): Promise<DiscountPreview> {
   const discountCents = computeDiscountCents(row.type, row.value, cartSubtotalCents);
+  const { freeShippingThresholdCents, flatShippingCents } = await getShippingCentsConfig();
   const shippingDiscountCents =
-    row.type === 'FREE_SHIPPING' && cartSubtotalCents < env.FREE_SHIPPING_THRESHOLD_CENTS
-      ? env.FLAT_SHIPPING_CENTS
+    row.type === 'FREE_SHIPPING' && cartSubtotalCents < freeShippingThresholdCents
+      ? flatShippingCents
       : 0;
   return {
     discountId: row.id,
@@ -119,7 +129,7 @@ async function validateLoaded(
   if (prior) {
     return { ok: false, reason: 'ALREADY_USED' };
   }
-  return { ok: true, discount: toPreviewRow(row, cartSubtotalCents) };
+  return { ok: true, discount: await toPreviewRow(row, cartSubtotalCents) };
 }
 
 export async function validate(
@@ -317,4 +327,57 @@ export async function listDiscounts(input: {
     total,
     totalPages: Math.ceil(total / limit) || 0,
   };
+}
+
+function validateDiscountValue(type: DiscountType, value: number): void {
+  if (type === 'PERCENTAGE' && (value < 1 || value > 100)) {
+    throw new HTTPException(400, {
+      message: 'Percentage discount value must be between 1 and 100',
+    });
+  }
+  if (type === 'FIXED' && value < 1) {
+    throw new HTTPException(400, { message: 'Fixed discount amount must be at least 1 cent' });
+  }
+  if (type === 'FREE_SHIPPING' && value !== 0) {
+    throw new HTTPException(400, { message: 'FREE_SHIPPING discounts must have value 0' });
+  }
+}
+
+export async function updateDiscount(id: string, input: UpdateDiscountInput): Promise<Discount> {
+  const existing = await prisma.discount.findUnique({ where: { id } });
+  if (!existing) {
+    throw new HTTPException(404, { message: 'Discount not found' });
+  }
+
+  const value = input.value ?? existing.value;
+  if (input.value !== undefined) {
+    validateDiscountValue(existing.type, value);
+  }
+
+  return prisma.discount.update({
+    where: { id },
+    data: {
+      ...(input.value !== undefined ? { value } : {}),
+      ...(input.minCartCents !== undefined ? { minCartCents: input.minCartCents } : {}),
+      ...(input.maxRedemptions !== undefined ? { maxRedemptions: input.maxRedemptions } : {}),
+      ...(input.validFrom !== undefined ? { validFrom: input.validFrom } : {}),
+      ...(input.validUntil !== undefined ? { validUntil: input.validUntil } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    },
+  });
+}
+
+/** Soft-delete: deactivates the discount without removing redemption history. */
+export async function softDeleteDiscount(id: string): Promise<Discount> {
+  const existing = await prisma.discount.findUnique({ where: { id } });
+  if (!existing) {
+    throw new HTTPException(404, { message: 'Discount not found' });
+  }
+  if (!existing.active) {
+    return existing;
+  }
+  return prisma.discount.update({
+    where: { id },
+    data: { active: false },
+  });
 }

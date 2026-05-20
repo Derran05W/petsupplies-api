@@ -6,6 +6,18 @@ vi.mock('../../src/lib/email.js', () => ({
   sendEmail: vi.fn(),
 }));
 
+vi.mock('../../src/services/siteSettingsService.js', () => ({
+  getEmailBrandContext: vi.fn().mockResolvedValue({
+    brandName: "Aileen's petstore",
+    supportEmail: 'hello@aileenspetstore.com',
+    frontendUrl: 'http://localhost:3000',
+  }),
+}));
+
+vi.mock('../../src/services/emailTemplateService.js', () => ({
+  renderFromDbTemplate: vi.fn().mockResolvedValue(null),
+}));
+
 import { sendEmail } from '../../src/lib/email.js';
 import {
   sendAbandonedCartReminder,
@@ -42,7 +54,7 @@ describe('emailService', () => {
     const arg = vi.mocked(sendEmail).mock.calls[0]![0];
     expect(arg.to).toBe('buyer@example.com');
     expect(arg.idempotencyKey).toBe('order-confirmation/order-1');
-    expect(arg.subject).toBe('Your Pet Supplies order is confirmed');
+    expect(arg.subject).toBe("Your Aileen's petstore order is confirmed");
     expect(arg.html).toContain('Kibble');
     expect(arg.text).toContain('Kibble');
     expect(arg.html).toContain('$10.00');
@@ -63,7 +75,7 @@ describe('emailService', () => {
     });
     const arg = vi.mocked(sendEmail).mock.calls[0]![0];
     expect(arg.idempotencyKey).toBe('shipping-notification/order-1');
-    expect(arg.subject).toBe('Your Pet Supplies order has shipped');
+    expect(arg.subject).toBe("Your Aileen's petstore order has shipped");
     expect(arg.html).toContain('UPS');
     expect(arg.html).toContain('TRK');
     expect(arg.text).toContain('UPS');

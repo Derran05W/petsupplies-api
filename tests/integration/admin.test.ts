@@ -12,6 +12,8 @@ vi.mock('../../src/services/orderService.js', () => ({
 vi.mock('../../src/services/discountService.js', () => ({
   createDiscount: vi.fn(),
   listDiscounts: vi.fn(),
+  updateDiscount: vi.fn(),
+  softDeleteDiscount: vi.fn(),
 }));
 
 vi.mock('../../src/services/subscriptionService.js', () => ({
@@ -286,6 +288,62 @@ describe('POST /admin/discounts', () => {
     expect(discountService.createDiscount).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'SAVE10', type: 'PERCENTAGE', value: 10 }),
     );
+  });
+});
+
+describe('PATCH /admin/discounts/:id', () => {
+  it('updates discount through discountService.updateDiscount', async () => {
+    vi.mocked(discountService.updateDiscount).mockResolvedValue({
+      id: 'd1',
+      code: 'SAVE10',
+      type: 'PERCENTAGE',
+      value: 15,
+      active: true,
+    } as never);
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts/d1', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ value: 15 }),
+    });
+    expect(res.status).toBe(200);
+    expect(discountService.updateDiscount).toHaveBeenCalledWith('d1', { value: 15 });
+  });
+
+  it('rejects empty patch body', async () => {
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts/d1', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('DELETE /admin/discounts/:id', () => {
+  it('soft-deletes discount through discountService.softDeleteDiscount', async () => {
+    vi.mocked(discountService.softDeleteDiscount).mockResolvedValue({
+      id: 'd1',
+      code: 'SAVE10',
+      active: false,
+    } as never);
+    const token = await signAdminToken('admin-1');
+    const app = createApp();
+    const res = await app.request('/admin/discounts/d1', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(discountService.softDeleteDiscount).toHaveBeenCalledWith('d1');
   });
 });
 

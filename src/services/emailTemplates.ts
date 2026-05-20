@@ -1,3 +1,10 @@
+import type { EmailTemplateKey } from '../constants/emailTemplateDefaults.js';
+import { renderFromDbTemplate } from './emailTemplateService.js';
+
+export type EmailBrand = {
+  brandName: string;
+};
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -102,8 +109,21 @@ function lineItemsText(items: EmailLineItem[]): string {
     .join('\n');
 }
 
-export function renderOrderConfirmation(payload: OrderConfirmationEmailPayload): RenderedEmail {
-  const subject = 'Your Pet Supplies order is confirmed';
+async function renderWithDbOrLegacy(
+  key: EmailTemplateKey,
+  vars: Record<string, string>,
+  legacy: () => RenderedEmail,
+): Promise<RenderedEmail> {
+  const fromDb = await renderFromDbTemplate(key, vars);
+  if (fromDb) return fromDb;
+  return legacy();
+}
+
+function legacyRenderOrderConfirmation(
+  payload: OrderConfirmationEmailPayload,
+  brand: EmailBrand,
+): RenderedEmail {
+  const subject = `Your ${brand.brandName} order is confirmed`;
   const greetingLine = greeting(payload.customerName);
   const html = `<p>${escapeHtml(greetingLine)}</p>
 <p>Thanks for your order. Your order <strong>${escapeHtml(payload.orderId)}</strong> is confirmed.</p>
@@ -129,10 +149,11 @@ If you did not place this order, please contact support.`;
   return { subject, html, text };
 }
 
-export function renderShippingNotification(
+function legacyRenderShippingNotification(
   payload: ShippingNotificationEmailPayload,
+  brand: EmailBrand,
 ): RenderedEmail {
-  const subject = 'Your Pet Supplies order has shipped';
+  const subject = `Your ${brand.brandName} order has shipped`;
   const greetingLine = greeting(payload.customerName);
   const html = `<p>${escapeHtml(greetingLine)}</p>
 <p>Order <strong>${escapeHtml(payload.orderId)}</strong> has shipped.</p>
@@ -152,10 +173,11 @@ View your order: ${payload.orderUrl}`;
   return { subject, html, text };
 }
 
-export function renderDeliveryConfirmation(
+function legacyRenderDeliveryConfirmation(
   payload: DeliveryConfirmationEmailPayload,
+  brand: EmailBrand,
 ): RenderedEmail {
-  const subject = 'Your Pet Supplies order was delivered';
+  const subject = `Your ${brand.brandName} order was delivered`;
   const greetingLine = greeting(payload.customerName);
   const html = `<p>${escapeHtml(greetingLine)}</p>
 <p>Order <strong>${escapeHtml(payload.orderId)}</strong> was delivered.</p>
@@ -170,7 +192,7 @@ View your order: ${payload.orderUrl}`;
   return { subject, html, text };
 }
 
-export function renderBackInStockAlert(payload: BackInStockAlertEmailPayload): RenderedEmail {
+function legacyRenderBackInStockAlert(payload: BackInStockAlertEmailPayload): RenderedEmail {
   const subject = `${payload.productName} is back in stock`;
   const html = `<p>Good news — <strong>${escapeHtml(payload.productName)}</strong> is back in stock.</p>
 <p><a href="${escapeHtml(payload.productUrl)}">View product</a></p>`;
@@ -182,7 +204,7 @@ View product: ${payload.productUrl}`;
   return { subject, html, text };
 }
 
-export function renderAbandonedCartReminder(
+function legacyRenderAbandonedCartReminder(
   payload: AbandonedCartReminderEmailPayload,
 ): RenderedEmail {
   const subject = 'Still thinking it over? Your cart is waiting';
@@ -203,8 +225,11 @@ Return to your cart: ${payload.cartUrl}`;
   return { subject, html, text };
 }
 
-export function renderPasswordReset(payload: PasswordResetEmailPayload): RenderedEmail {
-  const subject = 'Reset your Pet Supplies password';
+function legacyRenderPasswordReset(
+  payload: PasswordResetEmailPayload,
+  brand: EmailBrand,
+): RenderedEmail {
+  const subject = `Reset your ${brand.brandName} password`;
   const greetingLine = greeting(payload.customerName);
   const html = `<p>${escapeHtml(greetingLine)}</p>
 <p>We received a request to reset your password. This link expires in ${payload.expiresInMinutes} minutes.</p>
@@ -222,25 +247,7 @@ If you did not request this, you can ignore this email.`;
   return { subject, html, text };
 }
 
-export interface SubscriptionUpcomingDeliveryEmailPayload {
-  subscriptionId: string;
-  to: string;
-  customerName?: string | null;
-  nextDeliveryAt: Date;
-  productName: string;
-  productUrl: string;
-  petName?: string | null;
-  deliveryDateLabel: string;
-}
-
-export interface SubscriptionPaymentIssueEmailPayload {
-  subscriptionId: string;
-  to: string;
-  invoiceId: string;
-  customerName?: string | null;
-}
-
-export function renderSubscriptionUpcomingDelivery(
+function legacyRenderSubscriptionUpcomingDelivery(
   payload: SubscriptionUpcomingDeliveryEmailPayload,
 ): RenderedEmail {
   const subject = `Your Subscribe & Save delivery is coming up (${payload.deliveryDateLabel})`;
@@ -267,7 +274,7 @@ You can manage delivery anytime from your account.`;
   return { subject, html, text };
 }
 
-export function renderSubscriptionPaymentIssue(
+function legacyRenderSubscriptionPaymentIssue(
   payload: SubscriptionPaymentIssueEmailPayload,
 ): RenderedEmail {
   const subject = 'We hit a snag with your latest delivery';
@@ -284,3 +291,166 @@ You do not need to do anything right now; we will follow up if we need more info
 
   return { subject, html, text };
 }
+
+export async function renderOrderConfirmation(
+  payload: OrderConfirmationEmailPayload,
+  brand: EmailBrand,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy(
+    'order-confirmation',
+    {
+      greeting: greetingLine,
+      'order.number': payload.orderId,
+      'order.url': payload.orderUrl,
+      'order.total': formatMoney(payload.totalCents),
+      lineItems: lineItemsHtml(payload.items),
+      'brand.name': brand.brandName,
+    },
+    () => legacyRenderOrderConfirmation(payload, brand),
+  );
+}
+
+export async function renderShippingNotification(
+  payload: ShippingNotificationEmailPayload,
+  brand: EmailBrand,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy(
+    'shipping-notification',
+    {
+      greeting: greetingLine,
+      'order.number': payload.orderId,
+      'order.url': payload.orderUrl,
+      'order.carrier': payload.carrier,
+      'order.trackingNumber': payload.trackingNumber,
+      'brand.name': brand.brandName,
+    },
+    () => legacyRenderShippingNotification(payload, brand),
+  );
+}
+
+export async function renderDeliveryConfirmation(
+  payload: DeliveryConfirmationEmailPayload,
+  brand: EmailBrand,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy(
+    'delivery-confirmation',
+    {
+      greeting: greetingLine,
+      'order.number': payload.orderId,
+      'order.url': payload.orderUrl,
+      'brand.name': brand.brandName,
+    },
+    () => legacyRenderDeliveryConfirmation(payload, brand),
+  );
+}
+
+export async function renderBackInStockAlert(
+  payload: BackInStockAlertEmailPayload,
+): Promise<RenderedEmail> {
+  return renderWithDbOrLegacy(
+    'back-in-stock-alert',
+    {
+      'product.name': payload.productName,
+      'product.url': payload.productUrl,
+    },
+    () => legacyRenderBackInStockAlert(payload),
+  );
+}
+
+export async function renderAbandonedCartReminder(
+  payload: AbandonedCartReminderEmailPayload,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy(
+    'abandoned-cart-reminder',
+    {
+      greeting: greetingLine,
+      'cart.url': payload.cartUrl,
+      'cart.subtotal': formatMoney(payload.subtotalCents),
+      lineItems: lineItemsHtml(payload.items),
+    },
+    () => legacyRenderAbandonedCartReminder(payload),
+  );
+}
+
+export async function renderPasswordReset(
+  payload: PasswordResetEmailPayload,
+  brand: EmailBrand,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy(
+    'password-reset',
+    {
+      greeting: greetingLine,
+      'reset.url': payload.resetUrl,
+      'reset.expiresMinutes': String(payload.expiresInMinutes),
+      'brand.name': brand.brandName,
+    },
+    () => legacyRenderPasswordReset(payload, brand),
+  );
+}
+
+export interface SubscriptionUpcomingDeliveryEmailPayload {
+  subscriptionId: string;
+  to: string;
+  customerName?: string | null;
+  nextDeliveryAt: Date;
+  productName: string;
+  productUrl: string;
+  petName?: string | null;
+  deliveryDateLabel: string;
+}
+
+export interface SubscriptionPaymentIssueEmailPayload {
+  subscriptionId: string;
+  to: string;
+  invoiceId: string;
+  customerName?: string | null;
+}
+
+export async function renderSubscriptionUpcomingDelivery(
+  payload: SubscriptionUpcomingDeliveryEmailPayload,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  const petLine = payload.petName
+    ? `<p>For <strong>${escapeHtml(payload.petName)}</strong></p>`
+    : '';
+  const petLineText = payload.petName ? `\nFor ${payload.petName}` : '';
+
+  return renderWithDbOrLegacy(
+    'subscription-upcoming-delivery',
+    {
+      greeting: greetingLine,
+      'product.name': payload.productName,
+      'product.url': payload.productUrl,
+      'delivery.dateLabel': payload.deliveryDateLabel,
+      'pet.line': petLine,
+      'pet.lineText': petLineText,
+    },
+    () => legacyRenderSubscriptionUpcomingDelivery(payload),
+  );
+}
+
+export async function renderSubscriptionPaymentIssue(
+  payload: SubscriptionPaymentIssueEmailPayload,
+): Promise<RenderedEmail> {
+  const greetingLine = greeting(payload.customerName);
+  return renderWithDbOrLegacy('subscription-payment-issue', { greeting: greetingLine }, () =>
+    legacyRenderSubscriptionPaymentIssue(payload),
+  );
+}
+
+/** Synchronous legacy renders exported for snapshot baseline tests. */
+export const legacyEmailRenders = {
+  orderConfirmation: legacyRenderOrderConfirmation,
+  shippingNotification: legacyRenderShippingNotification,
+  deliveryConfirmation: legacyRenderDeliveryConfirmation,
+  backInStockAlert: legacyRenderBackInStockAlert,
+  abandonedCartReminder: legacyRenderAbandonedCartReminder,
+  passwordReset: legacyRenderPasswordReset,
+  subscriptionUpcomingDelivery: legacyRenderSubscriptionUpcomingDelivery,
+  subscriptionPaymentIssue: legacyRenderSubscriptionPaymentIssue,
+};

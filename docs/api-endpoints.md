@@ -24,6 +24,26 @@ Single inventory of HTTP routes mounted by [`src/app.ts`](../src/app.ts). Base U
 
 ---
 
+## Site settings (storefront)
+
+Mounted at `/site`. Public reads for ISR / server components.
+
+| Method | Path                      | Auth |
+| ------ | ------------------------- | ---- |
+| `GET`  | `/site/settings`          | none |
+| `GET`  | `/site/featured-products` | none |
+| `GET`  | `/site/nav`               | none |
+| `GET`  | `/site/category-strip`    | none |
+| `GET`  | `/site/pages/:slug`       | none |
+
+- **`GET /site/settings`** — `SiteSettingsPublic` (shipping thresholds, brand, hero, `brandValues` array). Does not expose `updatedBy`.
+- **`GET /site/featured-products`** — ordered array of public product list items (same shape as `GET /products` entries, including `inStock`).
+- **`GET /site/nav`** — `{ header: NavLink[], footer: FooterColumn[] }` where each footer entry has `column` + `links`.
+- **`GET /site/category-strip`** — ordered array of `{ id, label, imageUrl, href, position, isActive }`.
+- **`GET /site/pages/:slug`** — `{ slug, title, bodyMarkdown, updatedAt }` when published; `404` if slug unknown, unpublished, or missing.
+
+---
+
 ## Webhooks (server only)
 
 | Method | Path               | Auth                             |
@@ -249,16 +269,47 @@ Same `/admin/products` prefix; implemented on [`adminRouter`](../src/routes/admi
 | `PATCH` | `/admin/products/:id/package`      | admin |
 | `PATCH` | `/admin/products/:id/subscription` | admin |
 
+### Site settings (`/admin/site`)
+
+| Method  | Path                               | Auth  |
+| ------- | ---------------------------------- | ----- |
+| `PATCH` | `/admin/site/settings`             | admin |
+| `POST`  | `/admin/site/assets/upload-url`    | admin |
+| `PUT`   | `/admin/site/featured-products`    | admin |
+| `PUT`   | `/admin/site/nav/header`           | admin |
+| `PUT`   | `/admin/site/nav/footer`           | admin |
+| `PUT`   | `/admin/site/category-strip`       | admin |
+| `GET`   | `/admin/site/pages`                | admin |
+| `PUT`   | `/admin/site/pages/:slug`          | admin |
+| `GET`   | `/admin/site/email-templates`      | admin |
+| `GET`   | `/admin/site/email-templates/:key` | admin |
+| `PUT`   | `/admin/site/email-templates/:key` | admin |
+
+- **`PATCH /admin/site/settings`** — partial `SiteSettingsPublic` body. Revalidation tag: `site-settings`.
+- **`PUT /admin/site/featured-products`** — `{ productIds: string[] }` (0–8 IDs). Replaces the curated set atomically; only active products allowed. Revalidation tag: `site-featured`.
+- **`PUT /admin/site/nav/header`** — array of `{ label, href, position }`. Revalidation tag: `site-nav`.
+- **`PUT /admin/site/nav/footer`** — array of `{ column: { key, label, position }, links: [...] }` (1–4 columns). Revalidation tag: `site-nav`.
+- **`PUT /admin/site/category-strip`** — full array of `{ label, imageUrl?, href, position, isActive? }`. Revalidation tag: `site-category-strip`.
+- **`GET /admin/site/pages`** — `{ pages: StaticPageAdmin[] }` with `isPublished` for all allow-listed slugs (`about`, `privacy`, `terms`, `shipping`, `returns`, `faq`).
+- **`PUT /admin/site/pages/:slug`** — `{ title, bodyMarkdown, isPublished }`. Revalidation tag: `site-pages`.
+- **`GET /admin/site/email-templates`** — `{ templates: { key, subject, preheader, updatedAt }[] }`.
+- **`GET /admin/site/email-templates/:key`** — full template including `bodyMarkdown`.
+- **`PUT /admin/site/email-templates/:key`** — `{ subject, preheader?, bodyMarkdown }` with Mustache-style `{{var}}` placeholders validated per key. Revalidation tag: `site-emails`.
+
+See [`docs/site-assets.md`](./site-assets.md) for the `site-assets` bucket used by hero/category images.
+
 ### Orders & discounts (`/admin`)
 
-| Method  | Path                         | Auth  |
-| ------- | ---------------------------- | ----- |
-| `GET`   | `/admin/orders`              | admin |
-| `GET`   | `/admin/orders/:id`          | admin |
-| `PATCH` | `/admin/orders/:id/status`   | admin |
-| `PATCH` | `/admin/orders/:id/tracking` | admin |
-| `POST`  | `/admin/discounts`           | admin |
-| `GET`   | `/admin/discounts`           | admin |
+| Method   | Path                         | Auth  |
+| -------- | ---------------------------- | ----- |
+| `GET`    | `/admin/orders`              | admin |
+| `GET`    | `/admin/orders/:id`          | admin |
+| `PATCH`  | `/admin/orders/:id/status`   | admin |
+| `PATCH`  | `/admin/orders/:id/tracking` | admin |
+| `POST`   | `/admin/discounts`           | admin |
+| `GET`    | `/admin/discounts`           | admin |
+| `PATCH`  | `/admin/discounts/:id`       | admin |
+| `DELETE` | `/admin/discounts/:id`       | admin |
 
 ---
 
@@ -267,6 +318,7 @@ Same `/admin/products` prefix; implemented on [`adminRouter`](../src/routes/admi
 Feature-focused references (schemas, smoke tests, policies):
 
 - [`docs/admin-products.md`](./admin-products.md) — admin catalog & Storage uploads
+- [`docs/site-assets.md`](./site-assets.md) — homepage / site asset uploads
 - [`docs/admin-dashboard.md`](./admin-dashboard.md) — analytics queries
 - [`docs/discounts.md`](./discounts.md), [`docs/subscriptions.md`](./subscriptions.md), [`docs/shipping.md`](./shipping.md), [`docs/reviews.md`](./reviews.md), [`docs/wishlist.md`](./wishlist.md), [`docs/pets.md`](./pets.md), [`docs/cron.md`](./cron.md)
 

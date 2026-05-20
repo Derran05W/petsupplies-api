@@ -15,6 +15,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
     discount: {
       findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
       updateMany: vi.fn(),
       count: vi.fn(),
       findMany: vi.fn(),
@@ -341,6 +342,56 @@ describe('discountService', () => {
       );
       const r = await discountService.applyToOrder('d1', 'o1');
       expect(r.applied).toBe(true);
+    });
+  });
+
+  describe('updateDiscount', () => {
+    it('returns 404 when discount missing', async () => {
+      vi.mocked(prisma.discount.findUnique).mockResolvedValue(null);
+      await expect(
+        discountService.updateDiscount('missing', { active: false }),
+      ).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('updates allowed fields', async () => {
+      vi.mocked(prisma.discount.findUnique).mockResolvedValue(baseDiscountRow as never);
+      vi.mocked(prisma.discount.update).mockResolvedValue({
+        ...baseDiscountRow,
+        value: 20,
+        active: false,
+      } as never);
+      const r = await discountService.updateDiscount('d1', { value: 20, active: false });
+      expect(r.value).toBe(20);
+      expect(prisma.discount.update).toHaveBeenCalled();
+    });
+
+    it('rejects invalid percentage value on update', async () => {
+      vi.mocked(prisma.discount.findUnique).mockResolvedValue(baseDiscountRow as never);
+      await expect(discountService.updateDiscount('d1', { value: 101 })).rejects.toMatchObject({
+        status: 400,
+      });
+    });
+  });
+
+  describe('softDeleteDiscount', () => {
+    it('deactivates an active discount', async () => {
+      vi.mocked(prisma.discount.findUnique).mockResolvedValue(baseDiscountRow as never);
+      vi.mocked(prisma.discount.update).mockResolvedValue({
+        ...baseDiscountRow,
+        active: false,
+      } as never);
+      const r = await discountService.softDeleteDiscount('d1');
+      expect(r.active).toBe(false);
+    });
+
+    it('is idempotent when already inactive', async () => {
+      vi.mocked(prisma.discount.findUnique).mockResolvedValue({
+        ...baseDiscountRow,
+        active: false,
+      } as never);
+      const r = await discountService.softDeleteDiscount('d1');
+      expect(r.active).toBe(false);
+      expect(prisma.discount.update).not.toHaveBeenCalled();
     });
   });
 

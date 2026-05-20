@@ -162,6 +162,8 @@ function withInStock<T extends { stock: number }>(product: T) {
   return { ...product, inStock: product.stock > 0 };
 }
 
+export { withInStock };
+
 function buildOrderClause(sort?: ProductSortOption): string {
   switch (sort) {
     case 'price_asc':

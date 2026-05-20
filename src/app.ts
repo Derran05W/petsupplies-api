@@ -18,6 +18,7 @@ import { petsRouter } from './routes/pets.js';
 import { shippingRouter } from './routes/shipping.js';
 import { jobsRouter } from './routes/jobs.js';
 import { meSubscriptionsRouter, subscriptionCheckoutRouter } from './routes/subscriptions.js';
+import { siteRouter } from './routes/site.js';
 import type { Variables } from './types/hono.js';
 
 function devCorsOrigins(): string[] {
@@ -52,6 +53,7 @@ export function createApp() {
   app.route('/webhooks', webhooksRouter);
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
+  app.route('/site', siteRouter);
   app.route('/products', productsRouter);
   app.route('/cart', cartRouter);
   app.route('/checkout', checkoutRouter);

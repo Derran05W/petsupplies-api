@@ -1,7 +1,15 @@
 import 'dotenv/config';
-import { PrismaClient, ProductCategory } from '@prisma/client';
+import { PrismaClient, ProductCategory, NavLocation } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
+import { buildSiteSettingsSeedData } from '../src/constants/siteSettingsDefaults.js';
+import {
+  SITE_FOOTER_DEFAULTS,
+  SITE_HEADER_NAV_DEFAULTS,
+} from '../src/constants/siteNavDefaults.js';
+import { CATEGORY_STRIP_DEFAULTS } from '../src/constants/categoryStripDefaults.js';
+import { STATIC_PAGE_SEED_DEFAULTS } from '../src/constants/staticPageDefaults.js';
+import { EMAIL_TEMPLATE_SEED_DEFAULTS } from '../src/constants/emailTemplateDefaults.js';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
@@ -102,8 +110,85 @@ const products = [
   },
 ];
 
+function shippingSeedEnv(): { freeShippingThresholdCents: number; flatShippingCents: number } {
+  const freeShippingThresholdCents = Number(process.env.FREE_SHIPPING_THRESHOLD_CENTS ?? 5000);
+  const flatShippingCents = Number(process.env.FLAT_SHIPPING_CENTS ?? 599);
+  return { freeShippingThresholdCents, flatShippingCents };
+}
+
 async function main() {
   console.log('Seeding database...');
+
+  await prisma.siteSettings.upsert({
+    where: { id: 'singleton' },
+    update: {},
+    create: buildSiteSettingsSeedData(shippingSeedEnv()),
+  });
+  console.log('Seeded SiteSettings singleton.');
+
+  const headerCount = await prisma.navLink.count({ where: { location: NavLocation.HEADER } });
+  if (headerCount === 0) {
+    await prisma.navLink.createMany({
+      data: SITE_HEADER_NAV_DEFAULTS.map((link) => ({
+        ...link,
+        location: NavLocation.HEADER,
+      })),
+    });
+    console.log(`Seeded ${SITE_HEADER_NAV_DEFAULTS.length} header nav links.`);
+  }
+
+  const footerColumnCount = await prisma.footerColumn.count();
+  if (footerColumnCount === 0) {
+    await prisma.footerColumn.createMany({
+      data: SITE_FOOTER_DEFAULTS.map(({ column }) => column),
+    });
+    await prisma.navLink.createMany({
+      data: SITE_FOOTER_DEFAULTS.flatMap(({ column, links }) =>
+        links.map((link) => ({
+          ...link,
+          location: NavLocation.FOOTER,
+          columnKey: column.key,
+        })),
+      ),
+    });
+    console.log(`Seeded ${SITE_FOOTER_DEFAULTS.length} footer columns with links.`);
+  }
+
+  const categoryStripCount = await prisma.categoryStripItem.count();
+  if (categoryStripCount === 0) {
+    await prisma.categoryStripItem.createMany({
+      data: CATEGORY_STRIP_DEFAULTS.map((item) => ({ ...item })),
+    });
+    console.log(`Seeded ${CATEGORY_STRIP_DEFAULTS.length} category strip items.`);
+  }
+
+  for (const page of STATIC_PAGE_SEED_DEFAULTS) {
+    await prisma.staticPage.upsert({
+      where: { slug: page.slug },
+      update: {},
+      create: {
+        slug: page.slug,
+        title: page.title,
+        bodyMarkdown: page.bodyMarkdown,
+        isPublished: false,
+      },
+    });
+  }
+  console.log(`Ensured ${STATIC_PAGE_SEED_DEFAULTS.length} static page drafts.`);
+
+  for (const template of EMAIL_TEMPLATE_SEED_DEFAULTS) {
+    await prisma.emailTemplate.upsert({
+      where: { key: template.key },
+      update: {},
+      create: {
+        key: template.key,
+        subject: template.subject,
+        preheader: template.preheader,
+        bodyMarkdown: template.bodyMarkdown,
+      },
+    });
+  }
+  console.log(`Ensured ${EMAIL_TEMPLATE_SEED_DEFAULTS.length} email templates.`);
 
   for (const product of products) {
     const upserted = await prisma.product.upsert({
@@ -112,7 +197,8 @@ async function main() {
       create: product,
     });
 
-    const imageUrl = product.imageUrl ?? `https://placehold.co/600x400?text=${encodeURIComponent(product.name)}`;
+    const imageUrl =
+      product.imageUrl ?? `https://placehold.co/600x400?text=${encodeURIComponent(product.name)}`;
     await prisma.productImage.upsert({
       where: { id: `img-${upserted.id}` },
       update: { url: imageUrl },

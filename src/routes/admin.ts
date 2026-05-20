@@ -14,6 +14,7 @@ import { adminAnalyticsRouter } from './adminDashboard.js';
 import { adminCustomersRouter } from './adminCustomers.js';
 import { adminFulfillmentRouter } from './adminFulfillment.js';
 import { adminProductsRouter } from './adminProducts.js';
+import { adminSiteRouter } from './adminSite.js';
 
 const router = new Hono<{ Variables: Variables }>();
 
@@ -23,6 +24,7 @@ router.route('/analytics', adminAnalyticsRouter);
 router.route('/customers', adminCustomersRouter);
 router.route('/fulfillment', adminFulfillmentRouter);
 router.route('/products', adminProductsRouter);
+router.route('/site', adminSiteRouter);
 
 const adminUpdateTrackingSchema = z.object({
   trackingNumber: z.string().min(1),
@@ -179,6 +181,33 @@ router.get('/discounts', zValidator('query', listDiscountsQuerySchema), async (c
     active: q.active,
   });
   return c.json(result);
+});
+
+const updateDiscountSchema = z
+  .object({
+    value: z.number().int().optional(),
+    minCartCents: z.number().int().nonnegative().nullable().optional(),
+    maxRedemptions: z.number().int().positive().nullable().optional(),
+    validFrom: z.coerce.date().nullable().optional(),
+    validUntil: z.coerce.date().nullable().optional(),
+    active: z.boolean().optional(),
+  })
+  .strict()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  });
+
+router.patch('/discounts/:id', zValidator('json', updateDiscountSchema), async (c) => {
+  const id = c.req.param('id');
+  const body = c.req.valid('json');
+  const updated = await discountService.updateDiscount(id, body);
+  return c.json(updated);
+});
+
+router.delete('/discounts/:id', async (c) => {
+  const id = c.req.param('id');
+  const updated = await discountService.softDeleteDiscount(id);
+  return c.json(updated);
 });
 
 const adminProductIdParamSchema = z.object({
