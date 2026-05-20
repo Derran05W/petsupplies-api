@@ -19,7 +19,7 @@ vi.mock('../../src/services/subscriptionService.js', () => ({
 }));
 
 vi.mock('../../src/lib/prisma.js', () => ({
-  prisma: { user: { findUnique: vi.fn() } },
+  prisma: { user: { findUnique: vi.fn(), update: vi.fn() } },
 }));
 
 import * as orderService from '../../src/services/orderService.js';

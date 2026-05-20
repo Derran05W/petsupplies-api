@@ -140,6 +140,8 @@ UPDATE public."User"
 
 The user must have signed up via Supabase Auth first (the trigger above creates the row).
 
+**After API deploy (admin access fix):** You can also set `app_metadata.role = 'ADMIN'` on the user in Supabase Auth (Dashboard or SQL on `auth.users`). The first authenticated `/admin/*` request will promote `public."User".role` to `ADMIN` when the JWT carries that claim. SQL `UPDATE` above remains valid and is still required if you only use `user_metadata.role` (not promoted automatically).
+
 ---
 
 ## Register Stripe webhook endpoint (per env)

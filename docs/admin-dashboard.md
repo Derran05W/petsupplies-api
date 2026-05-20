@@ -2,7 +2,7 @@
 
 Authenticated **admin JWT** endpoints for operational KPIs, customer drill-down, and fulfillment workflow helpers.
 
-**Auth**: every path requires **`Authorization: Bearer`** (Supabase HS256 JWT) **`+`** `adminOnly` middleware (must load `role === ADMIN` from `public."User"`).
+**Auth**: every path requires **`Authorization: Bearer`** (Supabase HS256 JWT) **`+`** `adminOnly` middleware. Runtime access uses `public."User".role === 'ADMIN'`. If the JWT has `app_metadata.role === 'ADMIN'` but the row is still `CUSTOMER`, the first request promotes the row (self-heal); `user_metadata.role` alone does not promote. See [`deployment.md`](./deployment.md#promote-an-admin-per-env).
 
 **Money**: totals and line metrics are \*\*`Int` cents`.
 

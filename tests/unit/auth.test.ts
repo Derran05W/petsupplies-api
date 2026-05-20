@@ -18,7 +18,9 @@ async function signToken(payload: Record<string, unknown>, secret = SECRET, expi
 function makeApp() {
   const app = new Hono<{ Variables: Variables }>();
   app.use('/protected/*', auth);
-  app.get('/protected/me', (c) => c.json({ userId: c.get('userId') }));
+  app.get('/protected/me', (c) =>
+    c.json({ userId: c.get('userId'), jwtAppAdmin: c.get('jwtAppAdmin') }),
+  );
   return app;
 }
 
@@ -33,8 +35,23 @@ describe('auth middleware', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { userId: string };
+    const body = (await res.json()) as { userId: string; jwtAppAdmin: boolean };
     expect(body.userId).toBe('user-123');
+    expect(body.jwtAppAdmin).toBe(false);
+  });
+
+  it('sets jwtAppAdmin when app_metadata.role is ADMIN', async () => {
+    process.env.SUPABASE_JWT_SECRET = SECRET;
+    const token = await signToken({ sub: 'user-123', app_metadata: { role: 'ADMIN' } });
+    const app = makeApp();
+
+    const res = await app.request('/protected/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { userId: string; jwtAppAdmin: boolean };
+    expect(body.jwtAppAdmin).toBe(true);
   });
 
   it('returns 401 with no Authorization header', async () => {

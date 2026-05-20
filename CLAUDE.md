@@ -43,6 +43,7 @@ The Husky pre-commit hook runs `lint-staged`; commit-msg runs `commitlint`.
 - `supabase/triggers/` — SQL triggers applied **manually** in Supabase SQL editor (NOT Prisma migrations)
 - `tests/unit/` — service-level tests (mocked DB)
 - `tests/integration/` — route-level tests (real or pg-mem DB)
+- `docs/api-endpoints.md` — canonical HTTP route list for storefront vs admin vs infra
 - `.planning/` — phase plans + design docs (**GITIGNORED**, never push to public repo)
 
 ## Critical patterns
@@ -70,7 +71,8 @@ The Husky pre-commit hook runs `lint-staged`; commit-msg runs `commitlint`.
 - Auth middleware **only** verifies the Supabase JWT and attaches `userId` to the Hono context
 - It does **NOT** upsert User rows — that's handled by a Supabase database trigger (`supabase/triggers/sync_auth_user.sql`)
 - `adminOnly` middleware checks `User.role === ADMIN` (loads from DB) after `auth`
-- Admin promotion is done via a one-off SQL `UPDATE` in Supabase, not via API
+- `auth` sets `jwtAppAdmin` from JWT `app_metadata.role`; `adminOnly` may one-time `UPDATE` `User.role` to `ADMIN` when JWT is app-admin but DB is still `CUSTOMER` (does not trust `user_metadata.role`)
+- Admin promotion: SQL `UPDATE` in Supabase and/or `app_metadata.role` on `auth.users` (see `docs/deployment.md`)
 
 ### Stock management
 

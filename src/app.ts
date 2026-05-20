@@ -20,10 +20,29 @@ import { jobsRouter } from './routes/jobs.js';
 import { meSubscriptionsRouter, subscriptionCheckoutRouter } from './routes/subscriptions.js';
 import type { Variables } from './types/hono.js';
 
+function devCorsOrigins(): string[] {
+  const origins = new Set<string>([env.FRONTEND_URL]);
+  try {
+    const url = new URL(env.FRONTEND_URL);
+    if (url.hostname === 'localhost') {
+      origins.add(`${url.protocol}//127.0.0.1${url.port ? `:${url.port}` : ''}`);
+    } else if (url.hostname === '127.0.0.1') {
+      origins.add(`${url.protocol}//localhost${url.port ? `:${url.port}` : ''}`);
+    }
+  } catch {
+    // FRONTEND_URL validated at startup — ignore
+  }
+  return [...origins];
+}
+
 export function createApp() {
   const app = new Hono<{ Variables: Variables }>();
 
-  app.use(cors({ origin: env.FRONTEND_URL }));
+  app.use(
+    cors({
+      origin: env.NODE_ENV === 'development' ? devCorsOrigins() : env.FRONTEND_URL,
+    }),
+  );
   app.use(requestLogger);
   app.onError(errorHandler);
 
