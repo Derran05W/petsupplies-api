@@ -23,7 +23,7 @@ vi.mock('../../src/services/storageService.js', () => ({
 // adminOnly middleware loads user from DB
 vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn() },
   },
 }));
 

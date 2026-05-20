@@ -1,5 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import { jwtVerify } from 'jose';
+import { jwtPayloadHasAppAdminRole } from '../lib/jwt-admin-role.js';
 import type { Variables } from '../types/hono.js';
 
 export const auth = createMiddleware<{ Variables: Variables }>(async (c, next) => {
@@ -18,6 +19,7 @@ export const auth = createMiddleware<{ Variables: Variables }>(async (c, next) =
       return c.json({ error: 'Unauthorized' }, 401);
     }
     c.set('userId', sub);
+    c.set('jwtAppAdmin', jwtPayloadHasAppAdminRole(payload));
     await next();
   } catch {
     return c.json({ error: 'Unauthorized' }, 401);

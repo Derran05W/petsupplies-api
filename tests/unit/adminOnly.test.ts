@@ -9,6 +9,7 @@ vi.mock('../../src/lib/prisma.js', () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+      update: vi.fn(),
     },
   },
 }));
@@ -18,8 +19,8 @@ import { prisma } from '../../src/lib/prisma.js';
 const SECRET = 'test-jwt-secret-32chars-padding!!';
 process.env.SUPABASE_JWT_SECRET = SECRET;
 
-async function makeToken(sub: string) {
-  return new SignJWT({})
+async function makeToken(sub: string, claims: Record<string, unknown> = {}) {
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(sub)
     .setIssuedAt()
@@ -52,6 +53,7 @@ describe('adminOnly middleware', () => {
     });
 
     expect(res.status).toBe(200);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('returns 403 for CUSTOMER users', async () => {
@@ -67,6 +69,48 @@ describe('adminOnly middleware', () => {
     });
 
     expect(res.status).toBe(403);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('self-heals CUSTOMER to ADMIN when JWT app_metadata is ADMIN', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-3',
+      role: 'CUSTOMER',
+      email: 'promote@example.com',
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      id: 'user-3',
+      role: 'ADMIN',
+      email: 'promote@example.com',
+    } as never);
+
+    const token = await makeToken('user-3', { app_metadata: { role: 'ADMIN' } });
+    const res = await makeApp().request('/admin/dashboard', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-3' },
+      data: { role: 'ADMIN' },
+      select: { id: true, role: true, email: true },
+    });
+  });
+
+  it('does not self-heal from user_metadata ADMIN alone', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-4',
+      role: 'CUSTOMER',
+      email: 'meta@example.com',
+    } as never);
+
+    const token = await makeToken('user-4', { user_metadata: { role: 'ADMIN' } });
+    const res = await makeApp().request('/admin/dashboard', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(403);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('returns 403 when user is not found in DB', async () => {
@@ -78,5 +122,21 @@ describe('adminOnly middleware', () => {
     });
 
     expect(res.status).toBe(403);
+  });
+
+  it('returns 403 with message when JWT app admin has no User row (non-prod)', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+
+    const token = await makeToken('ghost-admin', { app_metadata: { role: 'ADMIN' } });
+    const res = await makeApp().request('/admin/dashboard', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; message?: string };
+    expect(body.error).toBe('Forbidden');
+    if (process.env.NODE_ENV !== 'production') {
+      expect(body.message).toMatch(/sync_auth_user/i);
+    }
   });
 });

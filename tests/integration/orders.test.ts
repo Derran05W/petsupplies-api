@@ -11,7 +11,7 @@ vi.mock('../../src/services/orderService.js', () => ({
 
 // adminOnly reads from DB — provide a stub so the mock path doesn't crash
 vi.mock('../../src/lib/prisma.js', () => ({
-  prisma: { user: { findUnique: vi.fn() } },
+  prisma: { user: { findUnique: vi.fn(), update: vi.fn() } },
 }));
 
 import * as orderService from '../../src/services/orderService.js';
