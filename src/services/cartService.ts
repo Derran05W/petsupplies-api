@@ -1,9 +1,9 @@
 import type { Prisma } from '@prisma/client';
 import { HTTPException } from 'hono/http-exception';
 import { prisma } from '../lib/prisma.js';
-import { env } from '../types/env.js';
 import type { DiscountRejectReason } from './discountService.js';
 import * as discountService from './discountService.js';
+import { getShippingCentsConfig } from './siteSettingsService.js';
 
 type CartItemRow = {
   id: string;
@@ -76,7 +76,7 @@ function subtotalFromItems(items: CartItemRow[]): number {
   return items.reduce((sum, it) => sum + it.quantity * it.product.price, 0);
 }
 
-function buildCartPayload(
+async function buildCartPayload(
   cartId: string,
   items: CartItemRow[],
   preview: discountService.DiscountPreview | null,
@@ -84,14 +84,14 @@ function buildCartPayload(
     discountInvalidReason?: DiscountRejectReason;
     discountInvalidCode?: string;
   },
-): CartResponse {
+): Promise<CartResponse> {
   const subtotalCents = subtotalFromItems(items);
-  const freeShippingThresholdCents = env.FREE_SHIPPING_THRESHOLD_CENTS;
+  const { freeShippingThresholdCents, flatShippingCents } = await getShippingCentsConfig();
   const freeShippingRemainingCents = Math.max(0, freeShippingThresholdCents - subtotalCents);
 
   let appliedDiscountCents = 0;
   let shippingDiscountCents = 0;
-  let shippingCents = subtotalCents >= freeShippingThresholdCents ? 0 : env.FLAT_SHIPPING_CENTS;
+  let shippingCents = subtotalCents >= freeShippingThresholdCents ? 0 : flatShippingCents;
 
   let discountCode: string | undefined;
   let discountType: CartResponse['discountType'];
@@ -138,7 +138,7 @@ export async function getCart(userId: string): Promise<CartResponse> {
   const subtotalCents = subtotalFromItems(items);
 
   if (!cart.discountId) {
-    return buildCartPayload(cart.id, items, null);
+    return await buildCartPayload(cart.id, items, null);
   }
 
   if (!cart.discount) {
@@ -146,7 +146,7 @@ export async function getCart(userId: string): Promise<CartResponse> {
       where: { id: cart.id },
       data: { discountId: null },
     });
-    return buildCartPayload(cart.id, items, null, {
+    return await buildCartPayload(cart.id, items, null, {
       discountInvalidReason: 'NOT_FOUND',
       discountInvalidCode: '',
     });
@@ -159,13 +159,13 @@ export async function getCart(userId: string): Promise<CartResponse> {
       where: { id: cart.id },
       data: { discountId: null },
     });
-    return buildCartPayload(cart.id, items, null, {
+    return await buildCartPayload(cart.id, items, null, {
       discountInvalidReason: v.reason,
       discountInvalidCode: invalidCode,
     });
   }
 
-  return buildCartPayload(cart.id, items, v.discount);
+  return await buildCartPayload(cart.id, items, v.discount);
 }
 
 export type ApplyDiscountResult =

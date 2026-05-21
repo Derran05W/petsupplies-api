@@ -82,8 +82,18 @@ Transactional email uses Resend (`resend`). Set these **per Railway service** (s
 
 ### Shipping (optional — has defaults in `src/types/env.ts`)
 
-- `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents).
-- `FLAT_SHIPPING_CENTS` — default `599` (cents).
+- `FREE_SHIPPING_THRESHOLD_CENTS` — default `5000` (cents). **Bootstrap / disaster fallback only** after self-serve Phase 1; runtime checkout reads `SiteSettings` in the database.
+- `FLAT_SHIPPING_CENTS` — default `599` (cents). Same bootstrap role as threshold.
+
+### Site settings & storefront revalidation (self-serve)
+
+| Variable                        | Purpose                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_SITE_ASSETS_BUCKET`   | Supabase bucket for hero/site uploads (default `site-assets`). See [`docs/site-assets.md`](./site-assets.md).              |
+| `SUPABASE_SITE_ASSET_MAX_BYTES` | Max bytes per site asset upload (default `5000000`).                                                                       |
+| `INTERNAL_REVALIDATE_TOKEN`     | Shared secret for `POST {FRONTEND_URL}/api/internal/revalidate` after admin site saves. Optional; ISR TTL is the backstop. |
+
+The Next.js app must implement the revalidate route with the same token (FE agent).
 
 ### Canada Post (Phase 24 — live rates + fallback)
 

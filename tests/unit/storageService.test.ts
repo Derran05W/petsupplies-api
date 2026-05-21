@@ -155,3 +155,34 @@ describe('storageService.createProductImageUploadUrl', () => {
     expect(calledKey).not.toContain('/etc/');
   });
 });
+
+describe('storageService.createSiteAssetUploadUrl', () => {
+  beforeEach(() => {
+    process.env.SUPABASE_SITE_ASSETS_BUCKET = 'site-assets';
+    process.env.SUPABASE_SITE_ASSET_MAX_BYTES = '5000000';
+  });
+
+  it('rejects unsupported content types with 400', async () => {
+    await expect(
+      storageService.createSiteAssetUploadUrl({
+        filename: 'photo.bmp',
+        contentType: 'image/bmp',
+      }),
+    ).rejects.toThrow(HTTPException);
+  });
+
+  it('generates objectKey under site/ prefix', async () => {
+    mockBucketWith({
+      data: { signedUrl: 'https://storage.example.com/upload', token: 'tok-1' },
+      error: null,
+    });
+
+    const result = await storageService.createSiteAssetUploadUrl({
+      filename: 'hero.jpg',
+      contentType: 'image/jpeg',
+    });
+
+    expect(result.objectKey).toMatch(/^site\/.+\/.+-hero\.jpg$/);
+    expect(result.publicUrl).toContain('site-assets');
+  });
+});

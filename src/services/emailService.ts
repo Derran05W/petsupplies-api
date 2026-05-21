@@ -1,6 +1,7 @@
 import { sendEmail, type EmailSendTag } from '../lib/email.js';
 import { env } from '../types/env.js';
-import type { RenderedEmail } from './emailTemplates.js';
+import type { EmailBrand, RenderedEmail } from './emailTemplates.js';
+import { getEmailBrandContext } from './siteSettingsService.js';
 import {
   renderAbandonedCartReminder,
   renderBackInStockAlert,
@@ -57,6 +58,11 @@ type SendTransactionalEmailArgs = {
   tags?: EmailSendTag[];
 };
 
+async function loadEmailBrand(): Promise<EmailBrand> {
+  const ctx = await getEmailBrandContext();
+  return { brandName: ctx.brandName };
+}
+
 async function sendTransactionalEmail(args: SendTransactionalEmailArgs): Promise<EmailSendResult> {
   const from = env.EMAIL_FROM?.trim() ?? '';
 
@@ -107,7 +113,8 @@ async function sendTransactionalEmail(args: SendTransactionalEmailArgs): Promise
 export async function sendOrderConfirmation(
   payload: OrderConfirmationEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderOrderConfirmation(payload);
+  const brand = await loadEmailBrand();
+  const rendered = await renderOrderConfirmation(payload, brand);
   return sendTransactionalEmail({
     template: 'order-confirmation',
     correlationId: payload.orderId,
@@ -120,7 +127,8 @@ export async function sendOrderConfirmation(
 export async function sendShippingNotification(
   payload: ShippingNotificationEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderShippingNotification(payload);
+  const brand = await loadEmailBrand();
+  const rendered = await renderShippingNotification(payload, brand);
   return sendTransactionalEmail({
     template: 'shipping-notification',
     correlationId: payload.orderId,
@@ -133,7 +141,8 @@ export async function sendShippingNotification(
 export async function sendDeliveryConfirmation(
   payload: DeliveryConfirmationEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderDeliveryConfirmation(payload);
+  const brand = await loadEmailBrand();
+  const rendered = await renderDeliveryConfirmation(payload, brand);
   return sendTransactionalEmail({
     template: 'delivery-confirmation',
     correlationId: payload.orderId,
@@ -146,7 +155,7 @@ export async function sendDeliveryConfirmation(
 export async function sendBackInStockAlert(
   payload: BackInStockAlertEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderBackInStockAlert(payload);
+  const rendered = await renderBackInStockAlert(payload);
   return sendTransactionalEmail({
     template: 'back-in-stock-alert',
     correlationId: `${payload.userId}:${payload.productId}`,
@@ -159,7 +168,7 @@ export async function sendBackInStockAlert(
 export async function sendAbandonedCartReminder(
   payload: AbandonedCartReminderEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderAbandonedCartReminder(payload);
+  const rendered = await renderAbandonedCartReminder(payload);
   const runAt = payload.idempotencyRunAt ?? new Date();
   const ymd = runAt.toISOString().slice(0, 10);
   return sendTransactionalEmail({
@@ -184,7 +193,7 @@ export async function sendPasswordReset(
 export async function sendUpcomingDeliveryReminder(
   payload: SubscriptionUpcomingDeliveryEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderSubscriptionUpcomingDelivery(payload);
+  const rendered = await renderSubscriptionUpcomingDelivery(payload);
   const deliveryKey = payload.nextDeliveryAt.toISOString().slice(0, 10);
   return sendTransactionalEmail({
     template: 'subscription-upcoming-delivery',
@@ -198,7 +207,7 @@ export async function sendUpcomingDeliveryReminder(
 export async function sendSubscriptionPaymentIssue(
   payload: SubscriptionPaymentIssueEmailPayload,
 ): Promise<EmailSendResult> {
-  const rendered = renderSubscriptionPaymentIssue(payload);
+  const rendered = await renderSubscriptionPaymentIssue(payload);
   return sendTransactionalEmail({
     template: 'subscription-payment-issue',
     correlationId: payload.subscriptionId,

@@ -62,6 +62,8 @@ model Product {
 
   tags             String[] @default([])
 
+  featuredEntry    FeaturedProduct?
+
   @@index([category, active])
   @@index([tags], type: Gin)
 }
@@ -379,4 +381,88 @@ enum SubscriptionInterval {
   WEEK_4
   WEEK_8
   WEEK_12
+}
+
+model FeaturedProduct {
+  id        String  @id @default(cuid())
+  productId String  @unique
+  position  Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([position])
+}
+
+enum NavLocation {
+  HEADER
+  FOOTER
+}
+
+model NavLink {
+  id        String      @id @default(cuid())
+  label     String
+  href      String
+  position  Int
+  location  NavLocation
+  columnKey String?
+
+  @@index([location, position])
+}
+
+model FooterColumn {
+  key      String @id
+  label    String
+  position Int
+}
+
+model CategoryStripItem {
+  id       String  @id @default(cuid())
+  label    String
+  imageUrl String?
+  href     String
+  position Int
+  isActive Boolean @default(true)
+
+  @@index([position])
+}
+
+model StaticPage {
+  slug         String   @id
+  title        String
+  bodyMarkdown String
+  isPublished  Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+  updatedBy    String?
+}
+
+model EmailTemplate {
+  key          String   @id
+  subject      String
+  preheader    String?
+  bodyMarkdown String
+  updatedAt    DateTime @updatedAt
+}
+
+model SiteSettings {
+  id                         String   @id @default("singleton")
+  freeShippingThresholdCents Int      @default(5000)
+  flatShippingCents          Int      @default(0)
+  brandName                  String   @default("Aileen's petstore")
+  supportEmail               String   @default("")
+  tagline                    String   @default("")
+  description                String   @default("")
+  logoAccentWords            Int      @default(1)
+  socialInstagram            String?
+  socialFacebook             String?
+  socialTwitter              String?
+  heroEyebrow                String   @default("")
+  heroHeadline               String   @default("")
+  heroSubhead                String   @default("")
+  heroImageUrl               String   @default("/images/hero-placeholder.jpg")
+  heroPrimaryCtaLabel        String   @default("")
+  heroPrimaryCtaHref         String   @default("")
+  heroSecondaryCtaLabel      String   @default("")
+  heroSecondaryCtaHref       String   @default("")
+  brandValuesJson            Json     @default("[]")
+  updatedAt                  DateTime @updatedAt
+  updatedBy                  String?
 }

@@ -54,6 +54,9 @@ const envSchema = z
     CRON_BEARER_TOKEN: z.string().min(32),
     SUPABASE_STORAGE_BUCKET: z.string().min(1).default('product-images'),
     SUPABASE_PRODUCT_IMAGE_MAX_BYTES: z.coerce.number().int().positive().default(5_000_000),
+    SUPABASE_SITE_ASSETS_BUCKET: z.string().min(1).default('site-assets'),
+    SUPABASE_SITE_ASSET_MAX_BYTES: z.coerce.number().int().positive().default(5_000_000),
+    INTERNAL_REVALIDATE_TOKEN: z.string().min(16).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {

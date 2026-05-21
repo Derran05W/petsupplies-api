@@ -9,6 +9,7 @@ import type {
   ShippingRateOption,
 } from '../types/shipping.js';
 import * as discountService from './discountService.js';
+import { getShippingCentsConfig } from './siteSettingsService.js';
 import {
   CanadaPostClientError,
   isParcelOversized,
@@ -218,15 +219,16 @@ function toRateOptions(
   });
 }
 
-function fallbackRows(
+async function fallbackRows(
   subtotalCents: number,
   discountPreview: discountService.DiscountPreview | null,
-): {
+): Promise<{
   rows: NormalizedCanadaPostRate[];
   forceFree: boolean;
-} {
+}> {
+  const { freeShippingThresholdCents, flatShippingCents } = await getShippingCentsConfig();
   const qualifies =
-    subtotalCents >= env.FREE_SHIPPING_THRESHOLD_CENTS || discountPreview?.type === 'FREE_SHIPPING';
+    subtotalCents >= freeShippingThresholdCents || discountPreview?.type === 'FREE_SHIPPING';
   if (qualifies) {
     return {
       forceFree: true,
@@ -245,7 +247,7 @@ function fallbackRows(
       {
         serviceCode: 'FALLBACK.FLAT',
         serviceName: 'Standard shipping',
-        amountCents: env.FLAT_SHIPPING_CENTS,
+        amountCents: flatShippingCents,
       },
     ],
   };
@@ -308,9 +310,10 @@ export async function quoteForCart(
   const expiresAtMs = Date.now() + QUOTE_TTL_MS;
   const expiresAt = new Date(expiresAtMs).toISOString();
 
-  const { rows: fbRows } = fallbackRows(subtotalCents, discountPreview);
+  const { freeShippingThresholdCents } = await getShippingCentsConfig();
+  const { rows: fbRows } = await fallbackRows(subtotalCents, discountPreview);
   const qualifiesFree =
-    subtotalCents >= env.FREE_SHIPPING_THRESHOLD_CENTS || discountPreview?.type === 'FREE_SHIPPING';
+    subtotalCents >= freeShippingThresholdCents || discountPreview?.type === 'FREE_SHIPPING';
 
   if (qualifiesFree) {
     const options = toRateOptions(fbRows, {
@@ -326,7 +329,7 @@ export async function quoteForCart(
   const parcels = parcelsForCart(lines, destPostal);
   for (const p of parcels) {
     if (isParcelOversized(p)) {
-      const options = toRateOptions(fallbackRows(subtotalCents, discountPreview).rows, {
+      const options = toRateOptions((await fallbackRows(subtotalCents, discountPreview)).rows, {
         userId,
         cartFingerprint: fingerprint,
         destPostalCode: destPostal,
