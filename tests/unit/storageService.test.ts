@@ -125,7 +125,7 @@ describe('storageService.createProductImageUploadUrl', () => {
     expect(result.publicUrl).toContain('product-images');
   });
 
-  it('throws 502 when Supabase returns an error', async () => {
+  it('throws 502 with bucket hint when Supabase reports missing bucket', async () => {
     mockBucketWith({
       data: null,
       error: { message: 'Bucket not found' },
@@ -136,7 +136,10 @@ describe('storageService.createProductImageUploadUrl', () => {
         filename: 'img.jpg',
         contentType: 'image/jpeg',
       }),
-    ).rejects.toThrow(HTTPException);
+    ).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringContaining('product-images'),
+    });
   });
 
   it('sanitizes unsafe characters in filename', async () => {

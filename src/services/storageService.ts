@@ -51,8 +51,12 @@ async function createSignedUploadUrl(params: {
     .createSignedUploadUrl(objectKey);
 
   if (error || !data) {
+    const detail = error?.message ?? 'Unknown error creating upload URL';
+    const missingBucket = /does not exist|bucket not found/i.test(detail);
     throw new HTTPException(502, {
-      message: `Storage error: ${error?.message ?? 'Unknown error creating upload URL'}`,
+      message: missingBucket
+        ? `Storage bucket "${params.bucket}" does not exist. Create a public bucket with that name in Supabase Dashboard → Storage (see docs/admin-products.md).`
+        : `Storage error: ${detail}`,
     });
   }
 

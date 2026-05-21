@@ -6,11 +6,17 @@ Phase 26 — full CRUD over the product catalog for admin users, with image uplo
 
 ## Supabase Storage setup (one-time per environment)
 
+**Option A — SQL (recommended):** In Supabase **SQL Editor**, run [`supabase/storage/product-images-bucket.sql`](../supabase/storage/product-images-bucket.sql). This creates the `product-images` public bucket and a public-read policy.
+
+**Option B — Dashboard:**
+
 1. Open the Supabase dashboard for the environment (staging or production).
 2. Go to **Storage → Buckets → New bucket**.
 3. Name it exactly `product-images` (or whatever you set in `SUPABASE_STORAGE_BUCKET`).
 4. Enable **Public bucket** (product images are publicly readable).
 5. Under **Policies**, ensure only the service role can write (the default RLS policy restricts writes to authenticated service-role requests, which is what the API uses).
+
+A **502** on `POST /admin/products/images/upload-url` with `The related resource does not exist` means this bucket is missing in the project pointed at by `SUPABASE_URL` in petsupplies-api `.env`.
 
 No other storage configuration is required.
 

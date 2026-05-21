@@ -58,6 +58,7 @@ const sampleReview = {
   id: 'rev-1',
   productId: 'p1',
   userId: 'user-1',
+  displayName: 'Taylor V.',
   rating: 5,
   title: 'Great',
   body: 'Nice',

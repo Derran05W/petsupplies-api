@@ -515,3 +515,18 @@ describe('reviewService.recomputeProductAggregates', () => {
     });
   });
 });
+
+describe('reviewDisplayName', () => {
+  it('uses first name from account name', () => {
+    expect(
+      reviewService.reviewDisplayName({
+        name: 'Taylor Verified',
+        email: 'taylor@example.com',
+      }),
+    ).toBe('Taylor');
+  });
+
+  it('falls back to email local-part first name when name is empty', () => {
+    expect(reviewService.reviewDisplayName({ name: null, email: 'sam@example.com' })).toBe('sam');
+  });
+});
