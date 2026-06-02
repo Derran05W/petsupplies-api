@@ -25,10 +25,17 @@ export interface UpdateReviewInput {
   body?: string;
 }
 
+export interface ReviewAuthor {
+  name: string | null;
+  email: string;
+}
+
 export interface ReviewResponse {
   id: string;
   productId: string;
   userId: string;
+  /** Public label from the reviewer account (name or email local-part). */
+  displayName: string;
   rating: number;
   title: string | null;
   body: string;
@@ -56,11 +63,28 @@ const reviewSortMap: Record<ReviewSortOption, Prisma.ReviewOrderByWithRelationIn
   rating_asc: { rating: 'asc' },
 };
 
-function toReviewResponse(r: Review): ReviewResponse {
+function firstNameFromLabel(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed.length === 0) return 'Customer';
+  const first = trimmed.split(/\s+/)[0] ?? trimmed;
+  return first.length > 0 ? first : 'Customer';
+}
+
+export function reviewDisplayName(user: ReviewAuthor): string {
+  const trimmed = user.name?.trim();
+  if (trimmed && trimmed.length > 0) return firstNameFromLabel(trimmed);
+  const local = user.email.split('@')[0]?.trim();
+  return local && local.length > 0 ? firstNameFromLabel(local) : 'Customer';
+}
+
+type ReviewWithAuthor = Review & { user?: ReviewAuthor | null };
+
+function toReviewResponse(r: ReviewWithAuthor): ReviewResponse {
   return {
     id: r.id,
     productId: r.productId,
     userId: r.userId,
+    displayName: r.user ? reviewDisplayName(r.user) : 'Customer',
     rating: r.rating,
     title: r.title,
     body: r.body,
@@ -184,7 +208,12 @@ export async function createReview(input: CreateReviewInput): Promise<ReviewResp
       }),
     );
 
-    return toReviewResponse(review);
+    const user = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { name: true, email: true },
+    });
+
+    return toReviewResponse({ ...review, user: user ?? undefined });
   });
 }
 
@@ -213,6 +242,9 @@ export async function listReviewsByProductSlug(input: {
       orderBy: reviewSortMap[sort],
       skip,
       take: limit,
+      include: {
+        user: { select: { name: true, email: true } },
+      },
     }),
     prisma.review.count({ where: { productId: product.id } }),
   ]);
@@ -256,6 +288,9 @@ export async function updateReview(
     const review = await tx.review.update({
       where: { id: reviewId },
       data,
+      include: {
+        user: { select: { name: true, email: true } },
+      },
     });
 
     await recomputeProductAggregates(existing.productId, tx);
