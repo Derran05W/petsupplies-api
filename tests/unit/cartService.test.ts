@@ -323,6 +323,29 @@ describe('cartService.removeItem', () => {
   });
 });
 
+describe('cartService.removeDiscount', () => {
+  it('clears discountId but preserves cart items', async () => {
+    vi.mocked(prisma.cart.findUnique).mockResolvedValue({
+      ...mockCart,
+      discountId: 'disc-1',
+    } as never);
+    vi.mocked(prisma.cart.update).mockResolvedValue(mockCart as never);
+    vi.mocked(prisma.cart.upsert).mockResolvedValue(mockCart as never);
+    vi.mocked(prisma.cartItem.findMany).mockResolvedValue([
+      { ...mockCartItem, product: mockProduct },
+    ] as never);
+
+    const result = await cartService.removeDiscount('user-1');
+
+    expect(prisma.cart.update).toHaveBeenCalledWith({
+      where: { id: 'cart-1' },
+      data: { discountId: null },
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.discountCode).toBeUndefined();
+  });
+});
+
 describe('cartService.clear', () => {
   it('no-op when cart does not exist', async () => {
     vi.mocked(prisma.cart.findUnique).mockResolvedValue(null);
