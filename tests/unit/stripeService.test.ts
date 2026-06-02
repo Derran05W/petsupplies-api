@@ -306,7 +306,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
             }),
           ],
           shipping_address_collection: { allowed_countries: ['CA'] },
-          automatic_tax: { enabled: true },
+          customer_update: { shipping: 'auto' },
           client_reference_id: 'user-1',
           metadata: { orderId: 'order-1' },
           payment_intent_data: { metadata: { orderId: 'order-1' } },
