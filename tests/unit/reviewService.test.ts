@@ -28,10 +28,16 @@ const baseReview = {
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 };
 
+const defaultReviewUser = {
+  name: 'Taylor Verified',
+  email: 'taylor@example.com',
+};
+
 type TxMock = {
   $queryRaw: ReturnType<typeof vi.fn>;
   product: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
   orderItem: { findFirst: ReturnType<typeof vi.fn> };
+  user: { findUnique: ReturnType<typeof vi.fn> };
   review: {
     findUnique: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
@@ -49,6 +55,9 @@ function createTxMock(): TxMock {
       update: vi.fn().mockResolvedValue({}),
     },
     orderItem: { findFirst: vi.fn() },
+    user: {
+      findUnique: vi.fn().mockResolvedValue(defaultReviewUser),
+    },
     review: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -102,6 +111,7 @@ describe('reviewService.createReview', () => {
       body: 'Nice',
     });
     expect(r.rating).toBe(5);
+    expect(r.displayName).toBe('Taylor');
     expect(tx.orderItem.findFirst).toHaveBeenCalled();
   });
 
@@ -351,6 +361,10 @@ describe('reviewService.createReview', () => {
       order.push('create');
       return { ...baseReview };
     });
+    tx.user.findUnique.mockImplementation(async () => {
+      order.push('user');
+      return defaultReviewUser;
+    });
     tx.review.aggregate.mockResolvedValue({ _avg: { rating: 5 }, _count: { _all: 1 } });
     mockTransactionWith(tx);
 
@@ -361,7 +375,7 @@ describe('reviewService.createReview', () => {
       body: 'x',
     });
 
-    expect(order).toEqual(['lock', 'product', 'purchase', 'create']);
+    expect(order).toEqual(['lock', 'product', 'purchase', 'create', 'user']);
   });
 });
 
@@ -391,6 +405,7 @@ describe('reviewService.updateReview', () => {
       userId: 'user-1',
       rating: 4,
       verified: true,
+      user: defaultReviewUser,
     });
     tx.review.aggregate.mockResolvedValue({ _avg: { rating: 4 }, _count: { _all: 1 } });
     mockTransactionWith(tx);
@@ -400,6 +415,9 @@ describe('reviewService.updateReview', () => {
     expect(tx.review.update).toHaveBeenCalledWith({
       where: { id: 'rev-1' },
       data: { rating: 4 },
+      include: {
+        user: { select: { name: true, email: true } },
+      },
     });
   });
 
