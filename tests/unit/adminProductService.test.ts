@@ -107,7 +107,7 @@ describe('adminProductService.listAdminProducts', () => {
     const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
       where: Record<string, unknown>;
     };
-    expect(call.where).toMatchObject({ category: ProductCategory.CAT });
+    expect(call.where).toMatchObject({ categories: { has: ProductCategory.CAT } });
   });
 
   it('searches by q using name/description icontains', async () => {
@@ -221,6 +221,94 @@ describe('adminProductService.createProduct', () => {
     expect(createCall.data.active).toBe(true);
     expect(createCall.data.tags).toEqual([]);
   });
+
+  it('passes ingredients through, defaulting to null when omitted', async () => {
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.product.create).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.createProduct({
+      name: 'Test',
+      description: 'Test product',
+      price: 100,
+      category: ProductCategory.DOG,
+      ingredients: 'Chicken, rice, vitamins',
+    });
+
+    const first = vi.mocked(prisma.product.create).mock.calls[0][0] as {
+      data: { ingredients: string | null };
+    };
+    expect(first.data.ingredients).toBe('Chicken, rice, vitamins');
+
+    vi.clearAllMocks();
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.product.create).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.createProduct({
+      name: 'Test',
+      description: 'Test product',
+      price: 100,
+      category: ProductCategory.DOG,
+    });
+
+    const second = vi.mocked(prisma.product.create).mock.calls[0][0] as {
+      data: { ingredients: string | null };
+    };
+    expect(second.data.ingredients).toBeNull();
+  });
+
+  it('resolves categories from explicit list and sets category=categories[0]', async () => {
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.product.create).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.createProduct({
+      name: 'Multi',
+      description: 'Multi category',
+      price: 100,
+      categories: [ProductCategory.DOG, ProductCategory.CAT],
+    });
+
+    const createCall = vi.mocked(prisma.product.create).mock.calls[0][0] as {
+      data: { category: ProductCategory; categories: ProductCategory[] };
+    };
+    expect(createCall.data.categories).toEqual([ProductCategory.DOG, ProductCategory.CAT]);
+    expect(createCall.data.category).toBe(ProductCategory.DOG);
+  });
+
+  it('dedupes categories preserving order', async () => {
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.product.create).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.createProduct({
+      name: 'Dupe',
+      description: 'Dupe categories',
+      price: 100,
+      categories: [ProductCategory.CAT, ProductCategory.DOG, ProductCategory.CAT],
+    });
+
+    const createCall = vi.mocked(prisma.product.create).mock.calls[0][0] as {
+      data: { category: ProductCategory; categories: ProductCategory[] };
+    };
+    expect(createCall.data.categories).toEqual([ProductCategory.CAT, ProductCategory.DOG]);
+    expect(createCall.data.category).toBe(ProductCategory.CAT);
+  });
+
+  it('derives categories from legacy single category when list omitted', async () => {
+    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.product.create).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.createProduct({
+      name: 'Legacy',
+      description: 'Legacy category',
+      price: 100,
+      category: ProductCategory.FISH,
+    });
+
+    const createCall = vi.mocked(prisma.product.create).mock.calls[0][0] as {
+      data: { category: ProductCategory; categories: ProductCategory[] };
+    };
+    expect(createCall.data.category).toBe(ProductCategory.FISH);
+    expect(createCall.data.categories).toEqual([ProductCategory.FISH]);
+  });
 });
 
 // ─── updateProduct ────────────────────────────────────────────────────────────
@@ -269,6 +357,57 @@ describe('adminProductService.updateProduct', () => {
     await expect(adminProductService.updateProduct('missing', { price: 100 })).rejects.toThrow(
       HTTPException,
     );
+  });
+
+  it('sets ingredients when provided (including null to clear)', async () => {
+    vi.mocked(prisma.product.update).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.updateProduct('prod-1', { ingredients: 'Salmon, peas' });
+    let call = vi.mocked(prisma.product.update).mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(call.data.ingredients).toBe('Salmon, peas');
+
+    vi.mocked(prisma.product.update).mockClear();
+    await adminProductService.updateProduct('prod-1', { ingredients: null });
+    call = vi.mocked(prisma.product.update).mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(call.data.ingredients).toBeNull();
+  });
+
+  it('does not touch ingredients or category when omitted', async () => {
+    vi.mocked(prisma.product.update).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.updateProduct('prod-1', { price: 500 });
+    const call = vi.mocked(prisma.product.update).mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(call.data).not.toHaveProperty('ingredients');
+    expect(call.data).not.toHaveProperty('category');
+    expect(call.data).not.toHaveProperty('categories');
+  });
+
+  it('when categories provided, sets both categories (deduped) and category=categories[0]', async () => {
+    vi.mocked(prisma.product.update).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.updateProduct('prod-1', {
+      categories: [ProductCategory.CAT, ProductCategory.DOG, ProductCategory.CAT],
+    });
+    const call = vi.mocked(prisma.product.update).mock.calls[0][0] as {
+      data: { category: ProductCategory; categories: ProductCategory[] };
+    };
+    expect(call.data.categories).toEqual([ProductCategory.CAT, ProductCategory.DOG]);
+    expect(call.data.category).toBe(ProductCategory.CAT);
+  });
+
+  it('when only legacy category provided, sets category and categories=[category]', async () => {
+    vi.mocked(prisma.product.update).mockResolvedValue(mockProduct() as never);
+
+    await adminProductService.updateProduct('prod-1', { category: ProductCategory.BIRD });
+    const call = vi.mocked(prisma.product.update).mock.calls[0][0] as {
+      data: { category: ProductCategory; categories: ProductCategory[] };
+    };
+    expect(call.data.category).toBe(ProductCategory.BIRD);
+    expect(call.data.categories).toEqual([ProductCategory.BIRD]);
   });
 });
 

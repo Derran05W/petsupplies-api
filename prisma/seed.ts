@@ -24,6 +24,7 @@ const products = [
     imageUrl: null,
     stock: 120,
     category: ProductCategory.DOG,
+    categories: [ProductCategory.DOG],
   },
   {
     slug: 'hills-science-diet-cat',
@@ -33,6 +34,7 @@ const products = [
     imageUrl: null,
     stock: 85,
     category: ProductCategory.CAT,
+    categories: [ProductCategory.CAT],
   },
   {
     slug: 'kong-classic-medium',
@@ -42,6 +44,7 @@ const products = [
     imageUrl: null,
     stock: 200,
     category: ProductCategory.DOG,
+    categories: [ProductCategory.DOG],
   },
   {
     slug: 'furminator-deshedding-tool',
@@ -52,6 +55,7 @@ const products = [
     imageUrl: null,
     stock: 60,
     category: ProductCategory.ACCESSORIES,
+    categories: [ProductCategory.ACCESSORIES, ProductCategory.DOG],
   },
   {
     slug: 'blue-buffalo-life-protection',
@@ -62,6 +66,7 @@ const products = [
     imageUrl: null,
     stock: 95,
     category: ProductCategory.DOG,
+    categories: [ProductCategory.DOG],
   },
   {
     slug: 'whiskas-wet-cat-food-pack',
@@ -71,6 +76,7 @@ const products = [
     imageUrl: null,
     stock: 300,
     category: ProductCategory.CAT,
+    categories: [ProductCategory.CAT],
   },
   {
     slug: 'petsafe-automatic-feeder',
@@ -80,6 +86,7 @@ const products = [
     imageUrl: null,
     stock: 40,
     category: ProductCategory.ACCESSORIES,
+    categories: [ProductCategory.ACCESSORIES, ProductCategory.CAT, ProductCategory.DOG],
   },
   {
     slug: 'adaptil-dog-calming-collar',
@@ -89,6 +96,7 @@ const products = [
     imageUrl: null,
     stock: 75,
     category: ProductCategory.DOG,
+    categories: [ProductCategory.DOG],
   },
   {
     slug: 'aqueon-fish-tank-20gal',
@@ -98,6 +106,7 @@ const products = [
     imageUrl: null,
     stock: 25,
     category: ProductCategory.FISH,
+    categories: [ProductCategory.FISH],
   },
   {
     slug: 'frontline-plus-flea-tick',
@@ -107,6 +116,7 @@ const products = [
     imageUrl: null,
     stock: 150,
     category: ProductCategory.HEALTH,
+    categories: [ProductCategory.HEALTH],
   },
 ];
 
@@ -193,7 +203,7 @@ async function main() {
   for (const product of products) {
     const upserted = await prisma.product.upsert({
       where: { slug: product.slug },
-      update: { category: product.category },
+      update: { category: product.category, categories: product.categories },
       create: product,
     });
 

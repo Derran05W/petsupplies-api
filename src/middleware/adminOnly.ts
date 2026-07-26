@@ -25,6 +25,14 @@ export const adminOnly = createMiddleware<{ Variables: Variables }>(async (c, ne
       data: { role: 'ADMIN' },
       select: adminSelect,
     });
+    // Structured audit trail for auto-promotion (F8). De-provisioning is currently manual
+    // (SQL UPDATE — see docs/deployment.md); auto-demoting when jwtAppAdmin is false is an
+    // explicitly deferred policy decision (it would lock out admins provisioned directly via
+    // DB SQL, who never carry an app_metadata admin claim).
+    console.warn(
+      '[admin_auto_promote]',
+      JSON.stringify({ userId, email: user.email, op: 'adminOnly.autoPromote' }),
+    );
     c.set('user', promoted);
     await next();
     return;

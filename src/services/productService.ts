@@ -40,7 +40,7 @@ export async function list(params: ListParams) {
   const where: Prisma.ProductWhereInput = { active: true };
 
   if (params.category) {
-    where.category = params.category;
+    where.categories = { has: params.category };
   }
   if (params.minPrice !== undefined || params.maxPrice !== undefined) {
     where.price = {};
@@ -51,9 +51,18 @@ export async function list(params: ListParams) {
   if (params.q) {
     const query = params.q;
 
-    // Full-text search: use raw SQL to filter by searchVector, then apply other filters
-    const safeQuery = query.replace(/'/g, "''");
-    const categoryClause = params.category ? `AND category = '${params.category}'` : '';
+    // Full-text search: use raw SQL to filter by searchVector, then apply other filters.
+    // `q` is bound as a real parameter (never string-interpolated) so it can never break
+    // out of the SQL text, regardless of quoting/GUC settings.
+    const bindings: unknown[] = [query];
+    const tsqueryParam = `$${bindings.length}`;
+    // Parameterize the category so it flows through as a bound value; array
+    // containment matches any product whose `categories` list includes it.
+    let categoryClause = '';
+    if (params.category) {
+      bindings.push(params.category);
+      categoryClause = `AND $${bindings.length} = ANY("categories")`;
+    }
     const minPriceClause = params.minPrice !== undefined ? `AND price >= ${params.minPrice}` : '';
     const maxPriceClause = params.maxPrice !== undefined ? `AND price <= ${params.maxPrice}` : '';
     const orderClause = buildOrderClause(params.sort);
@@ -62,16 +71,18 @@ export async function list(params: ListParams) {
       prisma.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT id FROM "Product"
          WHERE active = true
-           AND "searchVector" @@ plainto_tsquery('english', '${safeQuery}')
+           AND "searchVector" @@ plainto_tsquery('english', ${tsqueryParam})
            ${categoryClause} ${minPriceClause} ${maxPriceClause}
          ORDER BY ${orderClause}
          LIMIT ${limit} OFFSET ${skip}`,
+        ...bindings,
       ),
       prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
         `SELECT COUNT(*)::bigint AS count FROM "Product"
          WHERE active = true
-           AND "searchVector" @@ plainto_tsquery('english', '${safeQuery}')
+           AND "searchVector" @@ plainto_tsquery('english', ${tsqueryParam})
            ${categoryClause} ${minPriceClause} ${maxPriceClause}`,
+        ...bindings,
       ),
     ]);
 

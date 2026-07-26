@@ -3,7 +3,7 @@ import { ProductCategory } from '@prisma/client';
 
 // ─── Product schemas ──────────────────────────────────────────────────────────
 
-export const createProductSchema = z
+const productFieldsSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
     slug: z
@@ -15,8 +15,10 @@ export const createProductSchema = z
     description: z.string().trim().min(1).max(10_000),
     price: z.number().int().positive({ message: 'Price must be a positive integer (cents)' }),
     stock: z.number().int().nonnegative().default(0),
-    category: z.nativeEnum(ProductCategory),
+    category: z.nativeEnum(ProductCategory).optional(),
+    categories: z.array(z.nativeEnum(ProductCategory)).min(1).max(8).optional(),
     active: z.boolean().default(true),
+    ingredients: z.string().trim().max(5000).nullable().optional(),
     imageUrl: z.string().url().nullable().optional(),
     tags: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
     weightGrams: z.number().int().min(1).max(50_000).nullable().optional(),
@@ -27,7 +29,17 @@ export const createProductSchema = z
   })
   .strict();
 
-export const updateProductSchema = createProductSchema.partial();
+export const createProductSchema = productFieldsSchema.superRefine((data, ctx) => {
+  if (data.category === undefined && data.categories === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'At least one of "category" or "categories" is required',
+      path: ['categories'],
+    });
+  }
+});
+
+export const updateProductSchema = productFieldsSchema.partial();
 
 // ─── Image schemas ────────────────────────────────────────────────────────────
 

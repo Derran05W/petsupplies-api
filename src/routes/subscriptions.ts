@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import type { SubscriptionInterval, SubscriptionStatus } from '@prisma/client';
 import { auth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import * as subscriptionService from '../services/subscriptionService.js';
 import type { Variables } from '../types/hono.js';
 
@@ -24,8 +25,10 @@ export const subscriptionCheckoutRouter = new Hono<{ Variables: Variables }>();
 
 subscriptionCheckoutRouter.use('*', auth);
 
+// 10 requests/min per user — creates a Stripe subscription checkout session per call.
 subscriptionCheckoutRouter.post(
   '/',
+  rateLimit({ limit: 10, windowMs: 60_000 }),
   zValidator('json', createSubscriptionBodySchema),
   async (c) => {
     const userId = c.get('userId');

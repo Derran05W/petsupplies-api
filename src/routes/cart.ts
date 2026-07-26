@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { auth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import * as cartService from '../services/cartService.js';
 import type { Variables } from '../types/hono.js';
 
@@ -54,25 +55,31 @@ const discountCodeSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/),
 });
 
-router.post('/discount', zValidator('json', discountCodeSchema), async (c) => {
-  const userId = c.get('userId');
-  const { code } = c.req.valid('json');
-  const result = await cartService.applyDiscount(userId, code);
-  if (!result.ok) {
-    const r = result.reason;
-    if (r === 'INVALID_FORMAT') {
-      return c.json({ error: 'Invalid discount code format', reason: r }, 400);
-    }
-    if (r === 'NOT_FOUND' || r === 'INACTIVE' || r === 'NOT_STARTED' || r === 'EXPIRED') {
+// 10 requests/min per user — throttles discount-code guessing / rapid retry attempts.
+router.post(
+  '/discount',
+  rateLimit({ limit: 10, windowMs: 60_000 }),
+  zValidator('json', discountCodeSchema),
+  async (c) => {
+    const userId = c.get('userId');
+    const { code } = c.req.valid('json');
+    const result = await cartService.applyDiscount(userId, code);
+    if (!result.ok) {
+      const r = result.reason;
+      if (r === 'INVALID_FORMAT') {
+        return c.json({ error: 'Invalid discount code format', reason: r }, 400);
+      }
+      if (r === 'NOT_FOUND' || r === 'INACTIVE' || r === 'NOT_STARTED' || r === 'EXPIRED') {
+        return c.json({ error: 'Discount code is not valid', reason: r }, 400);
+      }
+      if (r === 'MIN_CART_NOT_MET' || r === 'MAX_REDEMPTIONS_REACHED' || r === 'ALREADY_USED') {
+        return c.json({ error: 'Discount cannot be applied to this cart', reason: r }, 409);
+      }
       return c.json({ error: 'Discount code is not valid', reason: r }, 400);
     }
-    if (r === 'MIN_CART_NOT_MET' || r === 'MAX_REDEMPTIONS_REACHED' || r === 'ALREADY_USED') {
-      return c.json({ error: 'Discount cannot be applied to this cart', reason: r }, 409);
-    }
-    return c.json({ error: 'Discount code is not valid', reason: r }, 400);
-  }
-  return c.json(result.cart);
-});
+    return c.json(result.cart);
+  },
+);
 
 router.delete('/discount', async (c) => {
   const userId = c.get('userId');

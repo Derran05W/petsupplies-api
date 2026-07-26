@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { ProductCategory } from '@prisma/client';
 import { auth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { prisma } from '../lib/prisma.js';
 import * as productService from '../services/productService.js';
 import * as reviewService from '../services/reviewService.js';
@@ -45,28 +46,35 @@ router.get('/', zValidator('query', listQuerySchema), async (c) => {
   return c.json(result);
 });
 
-router.post('/:slug/reviews', auth, zValidator('json', createReviewBodySchema), async (c) => {
-  const slug = c.req.param('slug');
-  const userId = c.get('userId');
-  const body = c.req.valid('json');
+// 5 requests/min per user — write endpoint; throttles review spam.
+router.post(
+  '/:slug/reviews',
+  auth,
+  rateLimit({ limit: 5, windowMs: 60_000 }),
+  zValidator('json', createReviewBodySchema),
+  async (c) => {
+    const slug = c.req.param('slug');
+    const userId = c.get('userId');
+    const body = c.req.valid('json');
 
-  const product = await prisma.product.findUnique({
-    where: { slug },
-    select: { id: true, active: true },
-  });
-  if (!product || !product.active) {
-    return c.json({ error: 'Product not found' }, 404);
-  }
+    const product = await prisma.product.findUnique({
+      where: { slug },
+      select: { id: true, active: true },
+    });
+    if (!product || !product.active) {
+      return c.json({ error: 'Product not found' }, 404);
+    }
 
-  const review = await reviewService.createReview({
-    productId: product.id,
-    userId,
-    rating: body.rating,
-    title: body.title,
-    body: body.body,
-  });
-  return c.json(review, 201);
-});
+    const review = await reviewService.createReview({
+      productId: product.id,
+      userId,
+      rating: body.rating,
+      title: body.title,
+      body: body.body,
+    });
+    return c.json(review, 201);
+  },
+);
 
 router.get('/:slug/reviews', zValidator('query', reviewListQuerySchema), async (c) => {
   const slug = c.req.param('slug');

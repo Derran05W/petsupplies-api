@@ -44,6 +44,7 @@ const publicSettings = {
   heroSecondaryCtaLabel: 'Browse categories',
   heroSecondaryCtaHref: '#categories',
   brandValues: [{ title: 'Free shipping', body: 'On every order over $50.' }],
+  rewardTiers: [{ thresholdCents: 5000, label: 'Silver' }],
 };
 
 async function token(sub: string) {
@@ -52,6 +53,8 @@ async function token(sub: string) {
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(SECRET));
 }
 
@@ -134,6 +137,50 @@ describe('PATCH /admin/site/settings', () => {
       { brandName: 'New Store' },
       'admin-1',
     );
+  });
+
+  it('updates reward tiers for admin (happy path)', async () => {
+    mockAdmin();
+    const rewardTiers = [
+      { thresholdCents: 2500, label: 'Bronze' },
+      { thresholdCents: 5000, label: 'Silver' },
+    ];
+    vi.mocked(siteSettingsService.updateSiteSettings).mockResolvedValue({
+      ...publicSettings,
+      rewardTiers,
+    });
+
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/site/settings', {
+      method: 'PATCH',
+      headers: adminHeaders(t),
+      body: JSON.stringify({ rewardTiers }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rewardTiers).toEqual(rewardTiers);
+    expect(siteSettingsService.updateSiteSettings).toHaveBeenCalledWith({ rewardTiers }, 'admin-1');
+  });
+
+  it('rejects reward tiers with duplicate thresholds (400)', async () => {
+    mockAdmin();
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/site/settings', {
+      method: 'PATCH',
+      headers: adminHeaders(t),
+      body: JSON.stringify({
+        rewardTiers: [
+          { thresholdCents: 5000, label: 'Silver' },
+          { thresholdCents: 5000, label: 'Also Silver' },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(siteSettingsService.updateSiteSettings).not.toHaveBeenCalled();
   });
 });
 

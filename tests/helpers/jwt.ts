@@ -10,5 +10,7 @@ export async function signTestUserJwt(sub: string): Promise<string> {
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(secret));
 }
