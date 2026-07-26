@@ -18,6 +18,9 @@ coverage/
 # OS
 .DS_Store
 
+# Editor
+.cursor/
+
 # Nix
 .direnv/
 result
