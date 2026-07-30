@@ -5,13 +5,25 @@ import { auth } from '../../src/middleware/auth.js';
 import type { Variables } from '../../src/types/hono.js';
 
 const SECRET = 'test-jwt-secret-32chars-padding!!';
+// Must match the issuer verify-supabase-jwt.ts derives from SUPABASE_URL (set in tests/setup.ts)
+// and the standard Supabase audience — see F7 (issuer/audience pinning).
+const ISSUER = 'https://test.supabase.co/auth/v1';
+const AUDIENCE = 'authenticated';
 
-async function signToken(payload: Record<string, unknown>, secret = SECRET, expiresIn = '1h') {
+async function signToken(
+  payload: Record<string, unknown>,
+  secret = SECRET,
+  expiresIn = '1h',
+  claims: { issuer?: string; audience?: string } = {},
+) {
+  const { issuer = ISSUER, audience = AUDIENCE } = claims;
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(payload.sub as string)
     .setIssuedAt()
     .setExpirationTime(expiresIn)
+    .setIssuer(issuer)
+    .setAudience(audience)
     .sign(new TextEncoder().encode(secret));
 }
 
@@ -87,5 +99,42 @@ describe('auth middleware', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(401);
+  });
+
+  // F7: issuer/audience are now pinned in verify-supabase-jwt.ts, derived from SUPABASE_URL
+  // and Supabase's standard 'authenticated' audience respectively.
+  it('returns 401 with a wrong issuer', async () => {
+    process.env.SUPABASE_JWT_SECRET = SECRET;
+    const token = await signToken({ sub: 'user-123' }, SECRET, '1h', {
+      issuer: 'https://evil.supabase.co/auth/v1',
+    });
+    const app = makeApp();
+    const res = await app.request('/protected/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 with a wrong audience', async () => {
+    process.env.SUPABASE_JWT_SECRET = SECRET;
+    const token = await signToken({ sub: 'user-123' }, SECRET, '1h', { audience: 'anon' });
+    const app = makeApp();
+    const res = await app.request('/protected/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('passes with a correctly-claimed issuer and audience (control case)', async () => {
+    process.env.SUPABASE_JWT_SECRET = SECRET;
+    const token = await signToken({ sub: 'user-123' }, SECRET, '1h', {
+      issuer: ISSUER,
+      audience: AUDIENCE,
+    });
+    const app = makeApp();
+    const res = await app.request('/protected/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
   });
 });

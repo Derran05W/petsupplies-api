@@ -4,6 +4,8 @@ Homepage hero images and other merchant-uploaded site assets use a dedicated Sup
 
 ## Bucket setup (Supabase dashboard)
 
+**Option A — SQL (recommended):** In Supabase **SQL Editor**, run [`supabase/storage/site-assets-bucket.sql`](../supabase/storage/site-assets-bucket.sql). This creates the `site-assets` public bucket (with the file-size limit + image MIME allowlist) and the public-read policy in one step — then continue with the admin-write RLS policies in step 3 below.
+
 1. Create a bucket named `site-assets` (or set `SUPABASE_SITE_ASSETS_BUCKET` to your bucket name).
 2. Enable **public read** for the bucket so the storefront can render `heroImageUrl` and other public URLs.
 3. Apply RLS policies so only admins can write:

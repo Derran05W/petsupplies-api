@@ -5,6 +5,7 @@ vi.mock('../../src/services/emailTemplateService.js', () => ({
 }));
 
 import {
+  formatMoney,
   legacyEmailRenders,
   renderAbandonedCartReminder,
   renderBackInStockAlert,
@@ -23,6 +24,14 @@ beforeEach(() => {
 });
 
 describe('emailTemplates (legacy fallback)', () => {
+  it('formats email amounts explicitly in CAD', () => {
+    const formatted = formatMoney(1234);
+
+    expect(formatted).toContain('CAD');
+    expect(formatted).toContain('12.34');
+    expect(formatted).not.toContain('USD');
+  });
+
   it('renderOrderConfirmation returns subject, html, and text with payload data', async () => {
     const r = await renderOrderConfirmation(
       {
@@ -41,7 +50,8 @@ describe('emailTemplates (legacy fallback)', () => {
     expect(r.html).toContain('https://app.example.com/orders/ord_1');
     expect(r.text).toContain('ord_1');
     expect(r.text).toContain('Toy');
-    expect(r.text).toContain('$12.34');
+    expect(r.text).toContain('CAD');
+    expect(r.text).toContain('12.34');
   });
 
   it('renderShippingNotification includes carrier and tracking only (no carrier URL)', async () => {
@@ -99,7 +109,8 @@ describe('emailTemplates (legacy fallback)', () => {
       subtotalCents: 900,
     });
     expect(r.subject).toBe('Still thinking it over? Your cart is waiting');
-    expect(r.html).toContain('$9.00');
+    expect(r.html).toContain('CAD');
+    expect(r.html).toContain('9.00');
     expect(r.text).toContain('https://app.example.com/cart');
   });
 

@@ -66,11 +66,43 @@ export function validateTemplateVariables(template: string, key: EmailTemplateKe
   }
 }
 
+/**
+ * Variable names whose value is a pre-built, already-safe HTML fragment
+ * produced by our own rendering code (e.g. `lineItemsHtml()` /
+ * `pet.line`'s `<p><strong>...` wrapper in emailTemplates.ts) rather than
+ * free text. Only these may reach markdownToEmailHtml's raw-HTML
+ * passthrough; every other substituted value is treated as untrusted free
+ * text (see `neutralizeFreeTextForHtml`).
+ */
+const RAW_HTML_VARS = new Set(['lineItems', 'pet.line']);
+
+/**
+ * The raw-HTML passthrough in markdownToEmailHtml decides "is this block
+ * raw HTML?" purely from whether the block's *text*, after substitution,
+ * starts with `<tag`. A free-text value containing a blank-line run
+ * (`\n\n`) can split itself out of its intended block and land in that
+ * passthrough on its own — e.g. a user name of
+ * `A\n\n<img src=x onerror=...>` becomes its own `<img ...>` "block".
+ * Collapsing embedded blank lines keeps a substituted value confined to
+ * the single block the template author placed it in, where the existing
+ * per-block escaping in markdownToEmailHtml/formatInlineMarkdown already
+ * applies — so this must NOT also HTML-entity-escape the value, or that
+ * escaping would be applied twice.
+ */
+function neutralizeFreeTextForHtml(name: string, value: string): string {
+  if (RAW_HTML_VARS.has(name)) return value;
+  return value.replace(/\n+/g, ' ');
+}
+
 export function substituteTemplateVariables(
   template: string,
   vars: Record<string, string>,
+  options: { forHtml?: boolean } = {},
 ): string {
-  return template.replace(VAR_PATTERN, (_match, name: string) => vars[name] ?? '');
+  return template.replace(VAR_PATTERN, (_match, name: string) => {
+    const value = vars[name] ?? '';
+    return options.forHtml ? neutralizeFreeTextForHtml(name, value) : value;
+  });
 }
 
 function invalidateCache(key?: string): void {
@@ -94,9 +126,25 @@ async function loadTemplateRow(key: EmailTemplateKey): Promise<EmailTemplate | n
   return row;
 }
 
+const SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+/** Allowlists link schemes to http/https/mailto; javascript:/data:/etc. are rejected. */
+function isSafeLinkUrl(url: string): boolean {
+  try {
+    return SAFE_LINK_SCHEMES.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function formatInlineMarkdown(text: string): string {
   return text
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, url: string) => {
+      if (!isSafeLinkUrl(url)) {
+        // Unsafe/unparseable scheme (javascript:, data:, vbscript:, ...) — neutralize
+        // by dropping the link and keeping the (escaped) label as plain text.
+        return escapeHtml(label);
+      }
       return `<a href="${escapeHtml(url)}">${escapeHtml(label)}</a>`;
     })
     .replace(/\*\*([^*]+)\*\*/g, (_m, inner: string) => `<strong>${escapeHtml(inner)}</strong>`);
@@ -169,15 +217,20 @@ export async function renderFromDbTemplate(
   const allVars = { 'brand.name': brand.brandName, ...vars };
 
   const subject = substituteTemplateVariables(row.subject, allVars);
-  const bodyRaw = substituteTemplateVariables(row.bodyMarkdown, allVars);
-  const bodyHtml = markdownToEmailHtml(bodyRaw);
+  // HTML body: free-text values are neutralized (see neutralizeFreeTextForHtml) so a
+  // malicious value can never fabricate a new markdown block and slip into
+  // markdownToEmailHtml's raw-HTML passthrough branch.
+  const bodyForHtml = substituteTemplateVariables(row.bodyMarkdown, allVars, { forHtml: true });
+  const bodyHtml = markdownToEmailHtml(bodyForHtml);
   const html = wrapEmailShell(bodyHtml, brand.brandName, row.preheader);
-  const text = substituteTemplateVariables(bodyRaw, allVars);
+  // Plain text carries values verbatim — a text/plain body has no HTML
+  // block-passthrough to protect against.
+  const bodyForText = substituteTemplateVariables(row.bodyMarkdown, allVars);
 
   return {
     subject,
     html,
-    text: markdownToPlainText(text),
+    text: markdownToPlainText(bodyForText),
   };
 }
 

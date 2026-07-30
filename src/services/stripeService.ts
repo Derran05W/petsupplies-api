@@ -310,7 +310,7 @@ export async function createCheckoutSessionFromCart(
     });
 
     const verified = verifySelectionToken(
-      env.STRIPE_WEBHOOK_SECRET,
+      env.SHIPPING_TOKEN_SECRET,
       shippingSelection.selectionToken,
     );
     if (!verified.ok) {
