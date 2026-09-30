@@ -10,6 +10,7 @@ const VALID: NodeJS.ProcessEnv = {
   STRIPE_WEBHOOK_SECRET: 'whsec_key',
   FRONTEND_URL: 'http://localhost:3000',
   CRON_BEARER_TOKEN: 'c'.repeat(32),
+  SHIPPING_TOKEN_SECRET: 's'.repeat(32),
 };
 
 describe('validateEnv', () => {
@@ -33,6 +34,18 @@ describe('validateEnv', () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { FRONTEND_URL: _fe, ...rest } = VALID;
     expect(() => validateEnv(rest as NodeJS.ProcessEnv)).toThrow(/FRONTEND_URL/);
+  });
+
+  it('throws when SHIPPING_TOKEN_SECRET is missing', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { SHIPPING_TOKEN_SECRET: _sts, ...rest } = VALID;
+    expect(() => validateEnv(rest as NodeJS.ProcessEnv)).toThrow(/SHIPPING_TOKEN_SECRET/);
+  });
+
+  it('throws when SHIPPING_TOKEN_SECRET is shorter than 32 chars', () => {
+    expect(() =>
+      validateEnv({ ...VALID, SHIPPING_TOKEN_SECRET: 'too-short' } as NodeJS.ProcessEnv),
+    ).toThrow(/SHIPPING_TOKEN_SECRET/);
   });
 
   it('defaults EMAIL_FROM in development and test when unset', () => {

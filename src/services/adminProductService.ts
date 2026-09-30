@@ -18,8 +18,10 @@ export interface CreateProductInput {
   description: string;
   price: number;
   stock?: number;
-  category: ProductCategory;
+  category?: ProductCategory;
+  categories?: ProductCategory[];
   active?: boolean;
+  ingredients?: string | null;
   imageUrl?: string | null;
   tags?: string[];
   weightGrams?: number | null;
@@ -54,6 +56,11 @@ export interface ReorderItem {
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
+
+/** Dedupe a category list preserving first-seen order. */
+function dedupeCategories(categories: ProductCategory[]): ProductCategory[] {
+  return [...new Set(categories)];
+}
 
 function slugify(name: string): string {
   const slug = name
@@ -94,7 +101,7 @@ export async function listAdminProducts(params: ListAdminProductsParams = {}) {
     where.active = params.active;
   }
   if (params.category) {
-    where.category = params.category;
+    where.categories = { has: params.category };
   }
   if (params.q) {
     const q = params.q.trim();
@@ -133,6 +140,11 @@ export async function createProduct(input: CreateProductInput) {
   const baseSlug = input.slug ?? slugify(input.name);
   const slug = await ensureUniqueSlug(baseSlug);
 
+  const resolvedCategories = dedupeCategories(
+    input.categories ?? (input.category !== undefined ? [input.category] : []),
+  );
+  const primaryCategory = resolvedCategories[0];
+
   try {
     return await prisma.product.create({
       data: {
@@ -141,8 +153,10 @@ export async function createProduct(input: CreateProductInput) {
         description: input.description,
         price: input.price,
         stock: input.stock ?? 0,
-        category: input.category,
+        category: primaryCategory,
+        categories: resolvedCategories,
         active: input.active ?? true,
+        ingredients: input.ingredients ?? null,
         imageUrl: input.imageUrl ?? null,
         tags: input.tags ?? [],
         weightGrams: input.weightGrams ?? null,
@@ -179,8 +193,18 @@ export async function updateProduct(id: string, patch: UpdateProductInput) {
   if (patch.description !== undefined) data.description = patch.description;
   if (patch.price !== undefined) data.price = patch.price;
   if (patch.stock !== undefined) data.stock = patch.stock;
-  if (patch.category !== undefined) data.category = patch.category;
+  // Keep `category` (back-compat scalar) and `categories` (authoritative list)
+  // consistent in every path: category always equals categories[0].
+  if (patch.categories !== undefined) {
+    const categories = dedupeCategories(patch.categories);
+    data.categories = categories;
+    data.category = categories[0];
+  } else if (patch.category !== undefined) {
+    data.category = patch.category;
+    data.categories = [patch.category];
+  }
   if (patch.active !== undefined) data.active = patch.active;
+  if (patch.ingredients !== undefined) data.ingredients = patch.ingredients;
   if (patch.imageUrl !== undefined) data.imageUrl = patch.imageUrl;
   if (patch.tags !== undefined) data.tags = patch.tags;
   if (patch.weightGrams !== undefined) data.weightGrams = patch.weightGrams;

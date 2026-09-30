@@ -35,6 +35,8 @@ model Product {
   stock         Int                       @default(0)
   active        Boolean                   @default(true)
   category      ProductCategory
+  categories    ProductCategory[]         @default([])
+  ingredients   String?
   searchVector  Unsupported("tsvector")?
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
@@ -66,6 +68,7 @@ model Product {
 
   @@index([category, active])
   @@index([tags], type: Gin)
+  @@index([categories], type: Gin)
 }
 
 model WishlistItem {
@@ -463,6 +466,7 @@ model SiteSettings {
   heroSecondaryCtaLabel      String   @default("")
   heroSecondaryCtaHref       String   @default("")
   brandValuesJson            Json     @default("[]")
+  rewardTiersJson            Json     @default("[]")
   updatedAt                  DateTime @updatedAt
   updatedBy                  String?
 }

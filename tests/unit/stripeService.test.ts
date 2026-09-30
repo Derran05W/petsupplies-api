@@ -469,7 +469,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
       const destPostal = 'K1A0B1';
       const fp = shippingService.cartFingerprintFromItems([{ productId: 'prod-1', quantity: 2 }]);
-      const token = encodeSelectionToken(process.env.STRIPE_WEBHOOK_SECRET!, {
+      const token = encodeSelectionToken(process.env.SHIPPING_TOKEN_SECRET!, {
         expiresAtMs: Date.now() + 120_000,
         userId: 'user-1',
         cartFingerprint: fp,
@@ -532,7 +532,7 @@ describe('stripeService.createCheckoutSessionFromCart', () => {
       vi.spyOn(shippingService, 'resolveDestinationPostal').mockResolvedValue('K1A0B1');
       vi.mocked(prisma.cart.findUnique).mockResolvedValue(mockCart as never);
       const fp = shippingService.cartFingerprintFromItems([{ productId: 'prod-1', quantity: 2 }]);
-      const token = encodeSelectionToken(process.env.STRIPE_WEBHOOK_SECRET!, {
+      const token = encodeSelectionToken(process.env.SHIPPING_TOKEN_SECRET!, {
         expiresAtMs: Date.now() - 1000,
         userId: 'user-1',
         cartFingerprint: fp,

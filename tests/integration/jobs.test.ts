@@ -71,6 +71,25 @@ describe('POST /jobs/run/:name', () => {
     expect(res.status).toBe(404);
   });
 
+  it('POST /jobs/run/constructor returns 404 (prototype-chain lookup guard, D4)', async () => {
+    const app = createApp();
+    const res = await app.request('/jobs/run/constructor', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${CRON}` },
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'NOT_FOUND' });
+  });
+
+  it('POST /jobs/run/toString returns 404 (prototype-chain lookup guard, D4)', async () => {
+    const app = createApp();
+    const res = await app.request('/jobs/run/toString', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${CRON}` },
+    });
+    expect(res.status).toBe(404);
+  });
+
   it('POST /jobs/run/abandoned-cart returns 200 with JobResult JSON for valid bearer', async () => {
     const payload = {
       scanned: 1,

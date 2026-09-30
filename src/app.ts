@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
+import { bodyLimit } from 'hono/body-limit';
 import { env } from './types/env.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -39,6 +41,10 @@ function devCorsOrigins(): string[] {
 export function createApp() {
   const app = new Hono<{ Variables: Variables }>();
 
+  // Response-headers only (X-Content-Type-Options, X-Frame-Options, etc.) — safe to apply
+  // globally, first, ahead of everything else.
+  app.use(secureHeaders());
+
   app.use(
     cors({
       origin: env.NODE_ENV === 'development' ? devCorsOrigins() : env.FRONTEND_URL,
@@ -51,6 +57,12 @@ export function createApp() {
   // middleware. Stripe signature verification requires the unparsed request body.
   // Do NOT move this mount point below any body-parsing middleware.
   app.route('/webhooks', webhooksRouter);
+
+  // Body-size limit for every route registered below this line. In Hono, app.use() only
+  // wraps routes registered AFTER it, so placing this here (after /webhooks, before
+  // everything else) keeps the Stripe webhook exempt — per the RAW BODY INVARIANT above —
+  // while covering the rest of the API.
+  app.use(bodyLimit({ maxSize: 256 * 1024 }));
 
   app.get('/health', (c) => c.json({ status: 'ok' }));
   app.route('/site', siteRouter);

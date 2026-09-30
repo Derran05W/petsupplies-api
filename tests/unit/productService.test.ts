@@ -88,7 +88,7 @@ describe('productService.list', () => {
     const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
       where: Record<string, unknown>;
     };
-    expect(call.where).toMatchObject({ category: ProductCategory.CAT });
+    expect(call.where).toMatchObject({ categories: { has: ProductCategory.CAT } });
   });
 
   it('filters by price range', async () => {
@@ -173,6 +173,89 @@ describe('productService.list', () => {
     expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
     expect(result.total).toBe(1);
     expect(result.products).toHaveLength(1);
+  });
+
+  it('full-text search filters category via array containment (bound param)', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: 'prod-1' }] as never)
+      .mockResolvedValueOnce([{ count: BigInt(1) }] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([mockProduct()] as never);
+
+    await productService.list({ q: 'royal', category: ProductCategory.DOG });
+
+    const rowsCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    const sql = rowsCall[0] as string;
+    expect(sql).toContain('= ANY("categories")');
+    expect(sql).not.toContain('category =');
+    // category is passed as a bound parameter, not interpolated
+    expect(rowsCall.slice(1)).toContain(ProductCategory.DOG);
+  });
+
+  it('full-text search without category omits the array clause', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ count: BigInt(0) }] as never);
+
+    await productService.list({ q: 'royal' });
+
+    const rowsCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    expect(rowsCall[0] as string).not.toContain('ANY("categories")');
+    // q is always bound (as $1); with no category there is no second binding
+    expect(rowsCall.slice(1)).toEqual(['royal']);
+  });
+
+  it('binds q as a parameter instead of interpolating it into the SQL text', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: 'prod-1' }] as never)
+      .mockResolvedValueOnce([{ count: BigInt(1) }] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([mockProduct()] as never);
+
+    const result = await productService.list({ q: "dog's toy" });
+
+    expect(result.total).toBe(1);
+    const rowsCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    const sql = rowsCall[0] as string;
+    expect(sql).toContain("plainto_tsquery('english', $1)");
+    // the raw value (quoted or escaped) must never appear inside the SQL text itself
+    expect(sql).not.toContain("dog's toy");
+    expect(sql).not.toContain("dog''s toy");
+    expect(rowsCall.slice(1)).toEqual(["dog's toy"]);
+
+    const countCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[1];
+    expect(countCall.slice(1)).toEqual(["dog's toy"]);
+  });
+
+  it('treats a SQL-injection-shaped q as literal bound search text, not SQL', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ count: BigInt(0) }] as never);
+
+    const payload = "x') OR '1'='1";
+    const result = await productService.list({ q: payload });
+
+    expect(result.products).toEqual([]);
+    expect(result.total).toBe(0);
+    const rowsCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    const sql = rowsCall[0] as string;
+    expect(sql).not.toContain(payload);
+    // passed through as an opaque bound parameter value, never spliced into the query
+    expect(rowsCall.slice(1)[0]).toBe(payload);
+  });
+
+  it('lines up q + category bindings positionally across both the rows and count queries', async () => {
+    vi.mocked(prisma.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ id: 'prod-1' }] as never)
+      .mockResolvedValueOnce([{ count: BigInt(1) }] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([mockProduct()] as never);
+
+    await productService.list({ q: 'royal', category: ProductCategory.DOG });
+
+    const rowsCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[0];
+    const countCall = vi.mocked(prisma.$queryRawUnsafe).mock.calls[1];
+    expect(rowsCall[0] as string).toContain("plainto_tsquery('english', $1)");
+    expect(rowsCall[0] as string).toContain('$2 = ANY("categories")');
+    expect(rowsCall.slice(1)).toEqual(['royal', ProductCategory.DOG]);
+    expect(countCall.slice(1)).toEqual(['royal', ProductCategory.DOG]);
   });
 
   it('returns empty when full-text search finds no matches', async () => {

@@ -19,10 +19,12 @@ export const jobsRouter = new Hono<{ Variables: Variables }>();
 
 jobsRouter.post('/run/:name', cronAuth, async (c) => {
   const name = c.req.param('name') as string;
-  const runner = RUNNERS[name as JobName];
-  if (!runner) {
+  // Guard against prototype-chain lookups (e.g. `constructor`, `toString`) before indexing —
+  // `RUNNERS[name]` alone would resolve inherited Object.prototype members for those names.
+  if (!Object.hasOwn(RUNNERS, name)) {
     return c.json({ error: 'NOT_FOUND' }, 404);
   }
+  const runner = RUNNERS[name as JobName];
 
   try {
     const result = await runner();

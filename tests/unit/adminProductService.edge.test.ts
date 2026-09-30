@@ -113,10 +113,10 @@ describe('listAdminProducts pagination & clamping', () => {
     });
 
     const call = vi.mocked(prisma.product.findMany).mock.calls[0][0] as {
-      where: { active?: boolean; category?: string; OR?: unknown[] };
+      where: { active?: boolean; categories?: { has?: string }; OR?: unknown[] };
     };
     expect(call.where.active).toBe(true);
-    expect(call.where.category).toBe(ProductCategory.DOG);
+    expect(call.where.categories).toEqual({ has: ProductCategory.DOG });
     expect(call.where.OR).toHaveLength(2);
   });
 });

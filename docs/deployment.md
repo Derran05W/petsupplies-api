@@ -62,6 +62,7 @@ All values are environment-specific. Set every variable below in each Railway se
 
 - `STRIPE_SECRET_KEY` — `sk_test_...` for staging, `sk_live_...` for prod.
 - `STRIPE_WEBHOOK_SECRET` — copied from the Stripe webhook endpoint you create below.
+- `SHIPPING_TOKEN_SECRET` — **required**, ≥32 chars (e.g. 64 hex chars from 32 random bytes). Dedicated HMAC secret for shipping-quote selection tokens (`POST /shipping/quote` → `POST /checkout/session`) — intentionally **separate** from `STRIPE_WEBHOOK_SECRET` (that one is shared with Stripe and visible in its dashboard). Rotating it invalidates any in-flight shipping quotes (~15 min TTL) — acceptable.
 
 ### App
 
@@ -151,6 +152,29 @@ UPDATE public."User"
 The user must have signed up via Supabase Auth first (the trigger above creates the row).
 
 **After API deploy (admin access fix):** You can also set `app_metadata.role = 'ADMIN'` on the user in Supabase Auth (Dashboard or SQL on `auth.users`). The first authenticated `/admin/*` request will promote `public."User".role` to `ADMIN` when the JWT carries that claim. SQL `UPDATE` above remains valid and is still required if you only use `user_metadata.role` (not promoted automatically).
+
+### Revoking / de-provisioning an admin
+
+`public."User".role` is the **authoritative, sticky** source of truth for admin access — `adminOnly`'s first check is `user.role === 'ADMIN'`, which short-circuits regardless of what the current JWT's `app_metadata.role` says. Removing the Supabase claim **by itself does not revoke access**: the user's next request still carries a validly-signed (now non-admin) JWT, `adminOnly` loads the DB row, sees `role === 'ADMIN'`, and lets them straight through the first branch.
+
+To fully revoke an admin, do **both** of the following in the affected env:
+
+1. **Supabase Auth** — remove or replace `app_metadata.role` on the `auth.users` row (Dashboard → Authentication → Users, or SQL against `auth.users`), so the user's next-issued token no longer carries an app-admin claim.
+2. **App DB** — run in that env's Supabase SQL editor:
+
+   ```sql
+   UPDATE public."User"
+      SET role = 'CUSTOMER'
+    WHERE id = '<uuid>';
+   ```
+
+   (Match on `User.id` — the Supabase `auth.users.id` / JWT `sub` — rather than email, to avoid ambiguity.)
+
+Skipping either step leaves a gap: skipping (2) leaves the DB row `ADMIN`, so the user keeps full admin access via the first branch regardless of their JWT; skipping (1) leaves the `app_metadata` claim in place, so a future request against a stale/cached DB row (or a manual role reset) can silently re-promote them.
+
+The `[admin_auto_promote]` structured log line emitted by `adminOnly.ts` (`userId`, `email`, `op: 'adminOnly.autoPromote'`) is an audit trail of every JWT-driven auto-promotion — periodically grep production logs for it to catch admins who were promoted via `app_metadata.role` but never formally reviewed, so any stale ones can be de-provisioned with the steps above.
+
+**Future enhancement (not implemented):** an automatic demote-on-JWT-loss path (step the DB role back to `CUSTOMER` whenever `jwtAppAdmin` is false on an otherwise-valid request) was considered and deferred. Doing this naively would also strip admins who were provisioned directly via the SQL `UPDATE` in "Promote an admin" above and never carry an `app_metadata` admin claim to begin with — they'd never be able to re-promote themselves via the JWT path either. Implementing it safely needs a `User` schema field (e.g. `roleSource: 'AUTO_PROMOTED' | 'DB_PROVISIONED'`) to distinguish the two, so only auto-promoted admins are ever auto-demoted.
 
 ---
 

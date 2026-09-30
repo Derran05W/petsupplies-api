@@ -191,7 +191,7 @@ function toRateOptions(
     source: ShippingQuoteSource;
   },
 ): ShippingRateOption[] {
-  const secret = env.STRIPE_WEBHOOK_SECRET;
+  const secret = env.SHIPPING_TOKEN_SECRET;
   return rows.slice(0, MAX_QUOTE_OPTIONS).map((r) => {
     const carrier = ctx.source === 'canada_post' ? ('CANADA_POST' as const) : ('FLAT' as const);
     const token = encodeSelectionToken(secret, {

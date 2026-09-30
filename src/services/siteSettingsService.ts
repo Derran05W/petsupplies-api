@@ -8,7 +8,7 @@ import {
 import { prisma } from '../lib/prisma.js';
 import { env } from '../types/env.js';
 import type { SiteSettingsPatch } from '../schemas/siteSettings.js';
-import { brandValueSchema } from '../schemas/siteSettings.js';
+import { brandValueSchema, rewardTierSchema } from '../schemas/siteSettings.js';
 import { revalidateFrontendTags } from './revalidationService.js';
 
 const CACHE_TTL_MS = 30_000;
@@ -20,6 +20,11 @@ export type BrandValue = {
   title: string;
   body: string;
   icon?: string;
+};
+
+export type RewardTier = {
+  thresholdCents: number;
+  label: string;
 };
 
 export type SiteSettingsPublic = {
@@ -42,6 +47,7 @@ export type SiteSettingsPublic = {
   heroSecondaryCtaLabel: string;
   heroSecondaryCtaHref: string;
   brandValues: BrandValue[];
+  rewardTiers: RewardTier[];
 };
 
 export type EmailBrandContext = {
@@ -55,6 +61,18 @@ function parseBrandValues(json: Prisma.JsonValue): BrandValue[] {
   const out: BrandValue[] = [];
   for (const item of json) {
     const parsed = brandValueSchema.safeParse(item);
+    if (parsed.success) {
+      out.push(parsed.data);
+    }
+  }
+  return out;
+}
+
+function parseRewardTiers(json: Prisma.JsonValue): RewardTier[] {
+  if (!Array.isArray(json)) return [];
+  const out: RewardTier[] = [];
+  for (const item of json) {
+    const parsed = rewardTierSchema.safeParse(item);
     if (parsed.success) {
       out.push(parsed.data);
     }
@@ -85,6 +103,7 @@ function fallbackRow(): SiteSettings {
     heroSecondaryCtaLabel: SITE_SETTINGS_HERO_DEFAULTS.heroSecondaryCtaLabel,
     heroSecondaryCtaHref: SITE_SETTINGS_HERO_DEFAULTS.heroSecondaryCtaHref,
     brandValuesJson: [],
+    rewardTiersJson: [],
     updatedAt: now,
     updatedBy: null,
   };
@@ -120,6 +139,7 @@ export function toPublicDto(row: SiteSettings): SiteSettingsPublic {
     heroSecondaryCtaLabel: row.heroSecondaryCtaLabel,
     heroSecondaryCtaHref: row.heroSecondaryCtaHref,
     brandValues: parseBrandValues(row.brandValuesJson),
+    rewardTiers: parseRewardTiers(row.rewardTiersJson),
   };
 }
 
@@ -224,18 +244,31 @@ export async function updateSiteSettings(
     data.brandValuesJson = patch.brandValues;
   }
 
+  // Persist reward tiers sorted ascending by threshold (duplicate thresholds are
+  // rejected by the schema's superRefine before we get here).
+  const sortedRewardTiers =
+    patch.rewardTiers !== undefined
+      ? [...patch.rewardTiers].sort((a, b) => a.thresholdCents - b.thresholdCents)
+      : undefined;
+
+  if (sortedRewardTiers !== undefined) {
+    data.rewardTiersJson = sortedRewardTiers;
+  }
+
   try {
     const seed = buildSiteSettingsSeedData({
       freeShippingThresholdCents: env.FREE_SHIPPING_THRESHOLD_CENTS,
       flatShippingCents: env.FLAT_SHIPPING_CENTS,
     });
-    const { brandValues, ...scalarPatch } = patch;
+    const { brandValues, rewardTiers: _rewardTiers, ...scalarPatch } = patch;
+    void _rewardTiers;
     const updated = await prisma.siteSettings.upsert({
       where: { id: SINGLETON_ID },
       create: {
         ...seed,
         ...scalarPatch,
         brandValuesJson: brandValues ?? seed.brandValuesJson,
+        rewardTiersJson: sortedRewardTiers ?? seed.rewardTiersJson,
         updatedBy: userId,
       },
       update: data,

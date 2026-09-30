@@ -36,6 +36,8 @@ export const SITE_SETTINGS_BRAND_VALUES_DEFAULT: Prisma.InputJsonValue = [
   },
 ];
 
+export const SITE_SETTINGS_REWARD_TIERS_DEFAULT: Prisma.InputJsonValue = [];
+
 export function buildSiteSettingsSeedData(env: {
   freeShippingThresholdCents: number;
   flatShippingCents: number;
@@ -47,5 +49,6 @@ export function buildSiteSettingsSeedData(env: {
     ...SITE_SETTINGS_BRAND_DEFAULTS,
     ...SITE_SETTINGS_HERO_DEFAULTS,
     brandValuesJson: SITE_SETTINGS_BRAND_VALUES_DEFAULT,
+    rewardTiersJson: SITE_SETTINGS_REWARD_TIERS_DEFAULT,
   };
 }

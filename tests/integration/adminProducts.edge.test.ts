@@ -35,6 +35,8 @@ async function adminToken() {
     .setSubject('admin-1')
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(SECRET));
 }
 

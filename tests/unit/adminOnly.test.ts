@@ -25,6 +25,8 @@ async function makeToken(sub: string, claims: Record<string, unknown> = {}) {
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(SECRET));
 }
 
@@ -95,6 +97,52 @@ describe('adminOnly middleware', () => {
       data: { role: 'ADMIN' },
       select: { id: true, role: true, email: true },
     });
+  });
+
+  it('logs a structured audit line when auto-promoting a user to ADMIN (D2)', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-3',
+      role: 'CUSTOMER',
+      email: 'promote@example.com',
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      id: 'user-3',
+      role: 'ADMIN',
+      email: 'promote@example.com',
+    } as never);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const token = await makeToken('user-3', { app_metadata: { role: 'ADMIN' } });
+    await makeApp().request('/admin/dashboard', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[admin_auto_promote]',
+      JSON.stringify({
+        userId: 'user-3',
+        email: 'promote@example.com',
+        op: 'adminOnly.autoPromote',
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('does not log an audit line when a user is already ADMIN', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-1',
+      role: 'ADMIN',
+      email: 'admin@example.com',
+    } as never);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const token = await makeToken('user-1');
+    await makeApp().request('/admin/dashboard', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('does not self-heal from user_metadata ADMIN alone', async () => {

@@ -40,6 +40,8 @@ async function token(sub: string) {
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(SECRET));
 }
 
@@ -209,6 +211,85 @@ describe('POST /admin/products', () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.id).toBe('prod-1');
+  });
+
+  it('creates a product with a categories array and returns 201', async () => {
+    mockAdmin();
+    vi.mocked(adminProductService.createProduct).mockResolvedValue(baseProduct as never);
+
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/products', {
+      method: 'POST',
+      headers: adminHeaders(t),
+      body: JSON.stringify({
+        name: 'Multi Cat',
+        description: 'A product',
+        price: 999,
+        categories: ['DOG', 'CAT'],
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(adminProductService.createProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ categories: ['DOG', 'CAT'] }),
+    );
+  });
+
+  it('returns 400 when categories is empty (min 1)', async () => {
+    mockAdmin();
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/products', {
+      method: 'POST',
+      headers: adminHeaders(t),
+      body: JSON.stringify({
+        name: 'No cats',
+        description: 'A product',
+        price: 999,
+        categories: [],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(adminProductService.createProduct).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when categories contains an invalid enum value', async () => {
+    mockAdmin();
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/products', {
+      method: 'POST',
+      headers: adminHeaders(t),
+      body: JSON.stringify({
+        name: 'Bad enum',
+        description: 'A product',
+        price: 999,
+        categories: ['DOG', 'DINOSAUR'],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(adminProductService.createProduct).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when neither category nor categories is provided', async () => {
+    mockAdmin();
+    const app = createApp();
+    const t = await token('admin-1');
+    const res = await app.request('/admin/products', {
+      method: 'POST',
+      headers: adminHeaders(t),
+      body: JSON.stringify({
+        name: 'No category',
+        description: 'A product',
+        price: 999,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(adminProductService.createProduct).not.toHaveBeenCalled();
   });
 
   it('returns 400 when required fields are missing', async () => {

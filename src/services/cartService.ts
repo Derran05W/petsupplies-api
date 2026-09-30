@@ -239,11 +239,10 @@ export async function updateItem(userId: string, itemId: string, quantity: numbe
     update: {},
   });
   const item = await prisma.cartItem.findUnique({ where: { id: itemId } });
-  if (!item) {
+  // Same 404 for "doesn't exist" and "belongs to another user's cart" — a 403 here would
+  // confirm the id's existence to a caller who doesn't own it (matches pet/address services).
+  if (!item || item.cartId !== cart.id) {
     throw new HTTPException(404, { message: 'Cart item not found' });
-  }
-  if (item.cartId !== cart.id) {
-    throw new HTTPException(403, { message: 'Forbidden' });
   }
 
   if (quantity === 0) {
@@ -274,11 +273,10 @@ export async function removeItem(userId: string, itemId: string) {
     update: {},
   });
   const item = await prisma.cartItem.findUnique({ where: { id: itemId } });
-  if (!item) {
+  // Same 404 for "doesn't exist" and "belongs to another user's cart" — a 403 here would
+  // confirm the id's existence to a caller who doesn't own it (matches pet/address services).
+  if (!item || item.cartId !== cart.id) {
     throw new HTTPException(404, { message: 'Cart item not found' });
-  }
-  if (item.cartId !== cart.id) {
-    throw new HTTPException(403, { message: 'Forbidden' });
   }
   await prisma.cartItem.delete({ where: { id: itemId } });
 }

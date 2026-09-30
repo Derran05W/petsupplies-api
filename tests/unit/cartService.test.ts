@@ -234,7 +234,7 @@ describe('cartService.updateItem', () => {
     }
   });
 
-  it('throws 403 when item belongs to different cart', async () => {
+  it('throws 404 (not 403) when item belongs to a different cart — no existence oracle (D5)', async () => {
     vi.mocked(prisma.cart.upsert).mockResolvedValue(mockCart as never);
     vi.mocked(prisma.cartItem.findUnique).mockResolvedValue({
       ...mockCartItem,
@@ -246,7 +246,7 @@ describe('cartService.updateItem', () => {
       expect.fail('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(HTTPException);
-      expect((e as HTTPException).status).toBe(403);
+      expect((e as HTTPException).status).toBe(404);
     }
   });
 
@@ -306,7 +306,7 @@ describe('cartService.removeItem', () => {
     }
   });
 
-  it('throws 403 when item belongs to different cart', async () => {
+  it('throws 404 (not 403) when item belongs to a different cart — no existence oracle (D5)', async () => {
     vi.mocked(prisma.cart.upsert).mockResolvedValue(mockCart as never);
     vi.mocked(prisma.cartItem.findUnique).mockResolvedValue({
       ...mockCartItem,
@@ -318,7 +318,7 @@ describe('cartService.removeItem', () => {
       expect.fail('should have thrown');
     } catch (e) {
       expect(e).toBeInstanceOf(HTTPException);
-      expect((e as HTTPException).status).toBe(403);
+      expect((e as HTTPException).status).toBe(404);
     }
   });
 });

@@ -52,6 +52,8 @@ async function signAdminToken(sub: string) {
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime('1h')
+    .setIssuer('https://test.supabase.co/auth/v1')
+    .setAudience('authenticated')
     .sign(new TextEncoder().encode(SECRET));
 
   vi.mocked(prisma.user.findUnique).mockResolvedValue({
@@ -81,6 +83,8 @@ describe('GET /admin/analytics/overview', () => {
       .setSubject('u1')
       .setIssuedAt()
       .setExpirationTime('1h')
+      .setIssuer('https://test.supabase.co/auth/v1')
+      .setAudience('authenticated')
       .sign(new TextEncoder().encode(SECRET));
 
     const app = createApp();

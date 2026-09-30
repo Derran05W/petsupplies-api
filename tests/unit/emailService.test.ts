@@ -57,9 +57,9 @@ describe('emailService', () => {
     expect(arg.subject).toBe("Your Aileen's petstore order is confirmed");
     expect(arg.html).toContain('Kibble');
     expect(arg.text).toContain('Kibble');
-    expect(arg.html).toContain('$10.00');
+    expect(arg.html).toMatch(/CAD\s10\.00/);
     expect(arg.text).toContain('Qty 2');
-    expect(arg.text).toContain('$10.00');
+    expect(arg.text).toMatch(/CAD\s10\.00/);
     expect(arg.html).toContain('http://localhost:3000/orders/order-1');
     expect(arg.text).toContain('http://localhost:3000/orders/order-1');
     expect(arg.tags).toEqual([{ name: 'template', value: 'order-confirmation' }]);

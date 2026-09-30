@@ -15,7 +15,11 @@ function escapeHtml(s: string): string {
 }
 
 export function formatMoney(cents: number): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+  return new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    currencyDisplay: 'code',
+  }).format(cents / 100);
 }
 
 /** Line items shared by order confirmation & abandoned cart */
@@ -87,6 +91,22 @@ export interface RenderedEmail {
   text: string;
 }
 
+/**
+ * Returns the greeting line as plain (unescaped) text, deliberately — its
+ * name portion is free text (from `User.name`) and this value feeds two
+ * different sinks that each need a different treatment:
+ *  - Legacy HTML renders below wrap it with `escapeHtml(greetingLine)` at
+ *    the point it's interpolated into a `<p>`.
+ *  - The DB-template path (`renderWithDbOrLegacy` → `emailTemplateService`)
+ *    passes it as `vars.greeting`; `substituteTemplateVariables(..., {
+ *    forHtml: true })` there neutralizes it before it can reach
+ *    markdownToEmailHtml's raw-HTML passthrough, and the existing per-block
+ *    escaping in markdownToEmailHtml/formatInlineMarkdown escapes it.
+ *  - Plain-text renders use it verbatim (no HTML to inject into).
+ * Escaping here too would double-escape the HTML paths above and corrupt
+ * the plain-text one, so this function intentionally stays raw and each
+ * consumer escapes at its own point of use.
+ */
 function greeting(name: string | null | undefined): string {
   if (name?.trim()) {
     return `Hi ${name.trim()},`;
@@ -94,6 +114,13 @@ function greeting(name: string | null | undefined): string {
   return 'Hi,';
 }
 
+/**
+ * Builds a trusted, already-escaped HTML fragment (item names/prices are
+ * escaped internally). Its output is passed to the DB-template renderer as
+ * the `lineItems` var and is allowed to reach markdownToEmailHtml's
+ * raw-HTML passthrough unmodified — see `RAW_HTML_VARS` in
+ * emailTemplateService.ts. If you rename this var, update that allowlist.
+ */
 function lineItemsHtml(items: EmailLineItem[]): string {
   return `<ul>${items
     .map(
@@ -415,6 +442,9 @@ export async function renderSubscriptionUpcomingDelivery(
   payload: SubscriptionUpcomingDeliveryEmailPayload,
 ): Promise<RenderedEmail> {
   const greetingLine = greeting(payload.customerName);
+  // Trusted, already-escaped HTML fragment passed through as the `pet.line`
+  // var — see `RAW_HTML_VARS` in emailTemplateService.ts. If you rename
+  // this var, update that allowlist.
   const petLine = payload.petName
     ? `<p>For <strong>${escapeHtml(payload.petName)}</strong></p>`
     : '';
